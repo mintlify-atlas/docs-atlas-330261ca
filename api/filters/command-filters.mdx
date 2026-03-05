@@ -1,0 +1,324 @@
+---
+title: Command Filters
+description: Filter and validate command arguments in Telegrator
+---
+
+## Overview
+
+Command filters allow you to validate and match command arguments. These filters work in conjunction with the `[CommandHandler]` attribute to provide fine-grained control over command processing.
+
+## Argument Count
+
+### ArgumentCount
+
+Filters messages where a command has a minimum number of arguments.
+
+<ParamField path="count" type="int" required>
+  The minimum number of arguments required.
+</ParamField>
+
+**Example:**
+
+```csharp
+[CommandHandler("send")]
+[ArgumentCount(2)]  // Requires at least 2 arguments
+public async Task HandleSend()
+{
+    // Matches: /send user message
+    // Matches: /send user hello world
+    // Rejects: /send user
+    // Rejects: /send
+}
+```
+
+## Argument Content Matching
+
+### ArgumentStartsWith
+
+Filters messages where a command argument starts with specific content.
+
+<ParamField path="content" type="string" required>
+  The content that the command argument should start with.
+</ParamField>
+
+<ParamField path="comparison" type="StringComparison" default="InvariantCulture">
+  The string comparison type to use for the check.
+</ParamField>
+
+<ParamField path="index" type="int" default="0">
+  The index of the argument to check (0-based).
+</ParamField>
+
+**Example:**
+
+```csharp
+[CommandHandler("file")]
+[ArgumentStartsWith("https://", index: 0)]
+public async Task HandleFileUrl()
+{
+    // Matches: /file https://example.com/doc.pdf
+    // Rejects: /file http://example.com/doc.pdf
+    // Rejects: /file document.pdf
+}
+```
+
+### ArgumentEndsWith
+
+Filters messages where a command argument ends with specific content.
+
+<ParamField path="content" type="string" required>
+  The content that the command argument should end with.
+</ParamField>
+
+<ParamField path="comparison" type="StringComparison" default="InvariantCulture">
+  The string comparison type to use for the check.
+</ParamField>
+
+<ParamField path="index" type="int" default="0">
+  The index of the argument to check (0-based).
+</ParamField>
+
+**Example:**
+
+```csharp
+[CommandHandler("download")]
+[ArgumentEndsWith(".pdf", index: 0)]
+public async Task HandlePdfDownload()
+{
+    // Matches: /download document.pdf
+    // Matches: /download report.pdf
+    // Rejects: /download image.png
+}
+```
+
+### ArgumentContains
+
+Filters messages where a command argument contains specific content.
+
+<ParamField path="content" type="string" required>
+  The content that the command argument should contain.
+</ParamField>
+
+<ParamField path="comparison" type="StringComparison" default="InvariantCulture">
+  The string comparison type to use for the check.
+</ParamField>
+
+<ParamField path="index" type="int" default="0">
+  The index of the argument to check (0-based).
+</ParamField>
+
+**Example:**
+
+```csharp
+[CommandHandler("search")]
+[ArgumentContains("@", index: 0)]
+public async Task HandleEmailSearch()
+{
+    // Matches: /search user@example.com
+    // Matches: /search admin@domain.org
+    // Rejects: /search username
+}
+```
+
+### ArgumentEquals
+
+Filters messages where a command argument equals specific content.
+
+<ParamField path="content" type="string" required>
+  The content that the command argument should equal.
+</ParamField>
+
+<ParamField path="comparison" type="StringComparison" default="InvariantCulture">
+  The string comparison type to use for the check.
+</ParamField>
+
+<ParamField path="index" type="int" default="0">
+  The index of the argument to check (0-based).
+</ParamField>
+
+**Example:**
+
+```csharp
+[CommandHandler("settings")]
+[ArgumentEquals("reset", index: 0)]
+public async Task HandleSettingsReset()
+{
+    // Matches: /settings reset
+    // Rejects: /settings show
+    // Rejects: /settings Reset (case-sensitive by default)
+}
+
+[CommandHandler("settings")]
+[ArgumentEquals("show", StringComparison.OrdinalIgnoreCase, index: 0)]
+public async Task HandleSettingsShow()
+{
+    // Matches: /settings show
+    // Matches: /settings SHOW
+    // Matches: /settings Show
+}
+```
+
+## Pattern Matching
+
+### ArgumentRegex
+
+Filters messages where a command argument matches a regular expression pattern.
+
+<ParamField path="pattern" type="string" required>
+  The regular expression pattern to match against the command argument.
+</ParamField>
+
+<ParamField path="options" type="RegexOptions" default="None">
+  The regex options to use for the pattern matching.
+</ParamField>
+
+<ParamField path="index" type="int" default="0">
+  The index of the argument to check (0-based).
+</ParamField>
+
+**Example:**
+
+```csharp
+using System.Text.RegularExpressions;
+
+[CommandHandler("user")]
+[ArgumentRegex(@"^\d{5,}$", index: 0)]  // Match user IDs (5+ digits)
+public async Task HandleUserById()
+{
+    // Matches: /user 123456
+    // Matches: /user 987654321
+    // Rejects: /user john
+    // Rejects: /user 123 (too short)
+}
+
+[CommandHandler("email")]
+[ArgumentRegex(@"^[\w\.-]+@[\w\.-]+\.\w+$", RegexOptions.IgnoreCase, index: 0)]
+public async Task HandleEmail()
+{
+    // Matches: /email user@example.com
+    // Matches: /email Admin@Domain.COM
+    // Rejects: /email invalid-email
+}
+```
+
+## Command Aliases
+
+### CommandAlias
+
+Filters messages based on command aliases, allowing handlers to respond to multiple command variations.
+
+<ParamField path="aliases" type="params string[]" required>
+  The command aliases to match against. Leading slashes are automatically removed.
+</ParamField>
+
+<ParamField path="Description" type="string" default="no description provided">
+  The description of the command (0-256 characters). Set as a property after initialization.
+</ParamField>
+
+**Example:**
+
+```csharp
+[CommandAlias("help", "h", "?")]
+public async Task HandleHelp()
+{
+    // Matches: /help
+    // Matches: /h
+    // Matches: /?
+    await Bot.SendTextMessageAsync("Help menu...");
+}
+
+[CommandAlias("settings", "config", "cfg")]
+public async Task HandleSettings()
+{
+    // Matches: /settings
+    // Matches: /config
+    // Matches: /cfg
+}
+```
+
+**With Description:**
+
+```csharp
+var handler = new CommandAliasAttribute("start", "begin")
+{
+    Description = "Start the bot and show welcome message"
+};
+```
+
+## Practical Examples
+
+### Validating File Extensions
+
+```csharp
+[CommandHandler("convert")]
+[ArgumentCount(1)]
+[ArgumentRegex(@"\.(jpg|png|gif)$", RegexOptions.IgnoreCase, index: 0)]
+public async Task HandleImageConvert()
+{
+    // Matches: /convert photo.jpg
+    // Matches: /convert image.PNG
+    // Rejects: /convert document.pdf
+}
+```
+
+### Multi-Argument Validation
+
+```csharp
+[CommandHandler("transfer")]
+[ArgumentCount(2)]
+[ArgumentRegex(@"^\d+$", index: 0)]      // First arg must be numeric
+[ArgumentStartsWith("@", index: 1)]      // Second arg must be username
+public async Task HandleTransfer()
+{
+    // Matches: /transfer 100 @username
+    // Rejects: /transfer abc @username
+    // Rejects: /transfer 100 username
+}
+```
+
+### Subcommand Routing
+
+```csharp
+[CommandHandler("admin")]
+[ArgumentEquals("ban", index: 0)]
+[ArgumentCount(2)]
+public async Task HandleAdminBan()
+{
+    // Matches: /admin ban @user
+}
+
+[CommandHandler("admin")]
+[ArgumentEquals("unban", index: 0)]
+[ArgumentCount(2)]
+public async Task HandleAdminUnban()
+{
+    // Matches: /admin unban @user
+}
+
+[CommandHandler("admin")]
+[ArgumentEquals("list", index: 0)]
+public async Task HandleAdminList()
+{
+    // Matches: /admin list
+}
+```
+
+## Best Practices
+
+1. **Use the most specific filter**: Choose `ArgumentEquals` over `ArgumentRegex` when matching exact strings for better performance.
+
+2. **Check argument count first**: Place `[ArgumentCount]` before other argument filters to avoid null reference issues.
+
+3. **Index correctly**: Remember that argument indices are 0-based and don't include the command itself.
+
+4. **Use case-insensitive comparison**: When appropriate, use `StringComparison.OrdinalIgnoreCase` for user-friendly commands.
+
+5. **Combine with other filters**: Mix command filters with chat or sender filters for precise routing:
+
+```csharp
+[CommandHandler("admin")]
+[ArgumentEquals("delete", index: 0)]
+[ChatType(ChatType.Group)]           // Only in groups
+[FromUserId(123456)]                 // Only from specific admin
+public async Task HandleAdminDelete() { }
+```

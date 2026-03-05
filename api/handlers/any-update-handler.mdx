@@ -1,0 +1,329 @@
+---
+title: AnyUpdateHandler
+description: Handler for processing any type of Telegram update
+---
+
+## Overview
+
+`AnyUpdateHandler` is an abstract base class for handlers that can process any type of update. This handler is triggered for all incoming updates regardless of their type, making it useful for logging, analytics, or fallback handling.
+
+## Attribute
+
+```csharp
+[AnyUpdateHandler(importance: -1)]
+```
+
+<ParamField path="importance" type="int" default="-1">
+  The importance level of the handler. Default is -1 (lower priority, executed after specific handlers).
+</ParamField>
+
+## Base Class
+
+```csharp
+public abstract class AnyUpdateHandler : AbstractUpdateHandler<Update>
+```
+
+Inherits from `AbstractUpdateHandler<Update>` with `UpdateType.Unknown`.
+
+## Properties
+
+The following properties are inherited from `AbstractUpdateHandler<Update>`:
+
+<ParamField path="Container" type="IHandlerContainer<Update>">
+  Handler container for the current update.
+</ParamField>
+
+<ParamField path="Client" type="ITelegramBotClient">
+  Telegram Bot client associated with the current container.
+</ParamField>
+
+<ParamField path="Input" type="Update">
+  Incoming update of any type.
+</ParamField>
+
+<ParamField path="HandlingUpdate" type="Update">
+  The Telegram update being handled (same as Input).
+</ParamField>
+
+<ParamField path="ExtraData" type="Dictionary<string, object>">
+  Additional data associated with the handler execution.
+</ParamField>
+
+<ParamField path="CompletedFilters" type="CompletedFiltersList">
+  List of successfully passed filters.
+</ParamField>
+
+<ParamField path="AwaitingProvider" type="IAwaitingProvider">
+  Provider for awaiting asynchronous operations.
+</ParamField>
+
+## Methods
+
+### Execute
+
+```csharp
+public abstract Task<Result> Execute(
+    IHandlerContainer<Update> container,
+    CancellationToken cancellation
+)
+```
+
+Abstract method to implement your update handling logic.
+
+<ParamField path="container" type="IHandlerContainer<Update>" required>
+  The handler container with update data.
+</ParamField>
+
+<ParamField path="cancellation" type="CancellationToken" required>
+  Cancellation token for the operation.
+</ParamField>
+
+**Returns:** `Task<Result>` - A result indicating success, fault, or continuation.
+
+## Filter Behavior
+
+The `AnyUpdateHandlerAttribute` always returns `true` in its `CanPass()` method, meaning it accepts all updates without filtering.
+
+## Examples
+
+### Logging Handler
+
+```csharp
+using Telegrator.Handlers;
+using Telegram.Bot.Types.Enums;
+
+[AnyUpdateHandler]
+public class LoggingHandler : AnyUpdateHandler
+{
+    private readonly ILogger<LoggingHandler> _logger;
+
+    public LoggingHandler(ILogger<LoggingHandler> logger)
+    {
+        _logger = logger;
+    }
+
+    public override Task<Result> Execute(
+        IHandlerContainer<Update> container,
+        CancellationToken cancellation)
+    {
+        var update = Input;
+
+        _logger.LogInformation(
+            "Received update {UpdateId} of type {UpdateType}",
+            update.Id,
+            update.Type
+        );
+
+        // Continue to next handler
+        return Task.FromResult(Result.Next());
+    }
+}
+```
+
+### Analytics Tracker
+
+```csharp
+[AnyUpdateHandler]
+public class AnalyticsHandler : AnyUpdateHandler
+{
+    private readonly IAnalyticsService _analytics;
+
+    public AnalyticsHandler(IAnalyticsService analytics)
+    {
+        _analytics = analytics;
+    }
+
+    public override async Task<Result> Execute(
+        IHandlerContainer<Update> container,
+        CancellationToken cancellation)
+    {
+        var update = Input;
+
+        // Track the update type
+        await _analytics.TrackEvent("update_received", new
+        {
+            update_type = update.Type.ToString(),
+            update_id = update.Id,
+            user_id = GetUserId(update),
+            chat_id = GetChatId(update)
+        });
+
+        // Continue to next handler
+        return Result.Next();
+    }
+
+    private long? GetUserId(Update update)
+    {
+        return update.Type switch
+        {
+            UpdateType.Message => update.Message?.From?.Id,
+            UpdateType.CallbackQuery => update.CallbackQuery?.From?.Id,
+            UpdateType.InlineQuery => update.InlineQuery?.From?.Id,
+            _ => null
+        };
+    }
+
+    private long? GetChatId(Update update)
+    {
+        return update.Type switch
+        {
+            UpdateType.Message => update.Message?.Chat?.Id,
+            UpdateType.CallbackQuery => update.CallbackQuery?.Message?.Chat?.Id,
+            _ => null
+        };
+    }
+}
+```
+
+### Fallback Handler
+
+```csharp
+[AnyUpdateHandler(importance: -10)]
+public class FallbackHandler : AnyUpdateHandler
+{
+    public override async Task<Result> Execute(
+        IHandlerContainer<Update> container,
+        CancellationToken cancellation)
+    {
+        var update = Input;
+
+        // This runs after all other handlers
+        // Check if update was handled by checking ExtraData
+        if (!ExtraData.ContainsKey("handled"))
+        {
+            // Update was not handled by any specific handler
+            if (update.Message is { } message)
+            {
+                await Client.SendTextMessageAsync(
+                    message.Chat.Id,
+                    "I don't understand that command. Try /help",
+                    cancellationToken: cancellation
+                );
+            }
+        }
+
+        return Result.Ok();
+    }
+}
+```
+
+### Update Type Router
+
+```csharp
+[AnyUpdateHandler]
+public class UpdateRouterHandler : AnyUpdateHandler
+{
+    public override async Task<Result> Execute(
+        IHandlerContainer<Update> container,
+        CancellationToken cancellation)
+    {
+        var update = Input;
+
+        switch (update.Type)
+        {
+            case UpdateType.Message:
+                ExtraData["source"] = "message";
+                break;
+
+            case UpdateType.CallbackQuery:
+                ExtraData["source"] = "callback";
+                break;
+
+            case UpdateType.InlineQuery:
+                ExtraData["source"] = "inline";
+                break;
+
+            case UpdateType.EditedMessage:
+                // Handle edited messages
+                return Result.Ok(); // Stop processing
+
+            default:
+                // Unknown update type
+                Console.WriteLine($"Unsupported update type: {update.Type}");
+                return Result.Ok();
+        }
+
+        // Continue to specific handlers
+        return Result.Next();
+    }
+}
+```
+
+### Rate Limiting Handler
+
+```csharp
+[AnyUpdateHandler(importance: 10)]
+public class RateLimitHandler : AnyUpdateHandler
+{
+    private readonly IRateLimiter _rateLimiter;
+
+    public RateLimitHandler(IRateLimiter rateLimiter)
+    {
+        _rateLimiter = rateLimiter;
+    }
+
+    public override async Task<Result> Execute(
+        IHandlerContainer<Update> container,
+        CancellationToken cancellation)
+    {
+        var update = Input;
+        long? userId = GetUserId(update);
+
+        if (userId.HasValue)
+        {
+            if (!await _rateLimiter.AllowRequest(userId.Value))
+            {
+                // Rate limit exceeded
+                if (update.Message is { } message)
+                {
+                    await Client.SendTextMessageAsync(
+                        message.Chat.Id,
+                        "You're sending too many requests. Please slow down.",
+                        cancellationToken: cancellation
+                    );
+                }
+
+                // Stop processing this update
+                return Result.Fault();
+            }
+        }
+
+        // Continue to next handler
+        return Result.Next();
+    }
+
+    private long? GetUserId(Update update)
+    {
+        return update.Type switch
+        {
+            UpdateType.Message => update.Message?.From?.Id,
+            UpdateType.CallbackQuery => update.CallbackQuery?.From?.Id,
+            _ => null
+        };
+    }
+}
+```
+
+## Common Use Cases
+
+1. **Logging and Monitoring**: Track all incoming updates
+2. **Analytics**: Collect metrics on bot usage
+3. **Rate Limiting**: Control request frequency per user
+4. **Authentication**: Verify user permissions before processing
+5. **Fallback Handling**: Provide default responses for unhandled updates
+6. **Preprocessing**: Set up shared data in `ExtraData` for other handlers
+7. **Error Recovery**: Catch and handle errors from specific handlers
+
+## Best Practices
+
+1. **Use Result.Next()**: Return `Result.Next()` to allow other handlers to process the update.
+2. **Set appropriate importance**: Use low importance (negative values) for fallback handlers.
+3. **Check ExtraData**: Use `ExtraData` to communicate between handlers.
+4. **Be efficient**: Since this runs for every update, keep processing minimal.
+5. **Handle all update types**: Be prepared for any type of update.
+
+## See Also
+
+- [Result](/api/handlers/result) - Handler result types
+- [MessageHandler](/api/handlers/message-handler) - For message-specific handling
+- [Update Types](https://core.telegram.org/bots/api#update) - Telegram update types

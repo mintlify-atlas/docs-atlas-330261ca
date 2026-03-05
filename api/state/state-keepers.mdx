@@ -1,0 +1,334 @@
+---
+title: 'State Keepers'
+description: 'Base architecture for state management in Telegrator'
+---
+
+## Overview
+
+State keepers provide the foundation for managing conversation state in Telegrator. The `StateKeeperBase` class defines a generic state management system that tracks state values associated with Telegram updates.
+
+## StateKeeperBase\<TKey, TState\>
+
+Abstract base class for all state keeper implementations.
+
+### Type Parameters
+
+<ParamField path="TKey" type="type parameter">
+  The type of key used for state resolution (typically `long` for user/chat IDs). Must be non-null.
+</ParamField>
+
+<ParamField path="TState" type="type parameter">
+  The type of state values (e.g., `int`, `string`, `enum`). Must be non-null.
+</ParamField>
+
+### Properties
+
+<ParamField path="KeyResolver" type="IStateKeyResolver<TKey>">
+  Gets or sets the key resolver used to extract keys from updates. This determines whether states are tracked per-user, per-chat, or using a custom resolution strategy.
+</ParamField>
+
+<ParamField path="DefaultState" type="TState">
+  Abstract property that defines the default state value when a new state is created. Must be implemented by derived classes.
+</ParamField>
+
+### Public Methods
+
+<ParamField path="SetState(Update keySource, TState newState)" type="void">
+  Sets the state for the specified update to a new value.
+  
+  **Parameters:**
+  - `keySource` (Update): The Telegram update to use as a key source
+  - `newState` (TState): The new state value to set
+</ParamField>
+
+<ParamField path="GetState(Update keySource)" type="TState">
+  Gets the current state for the specified update.
+  
+  **Parameters:**
+  - `keySource` (Update): The Telegram update to use as a key source
+  
+  **Returns:** The current state value
+  
+  **Throws:** `KeyNotFoundException` if no state exists for the key
+</ParamField>
+
+<ParamField path="TryGetState(Update keySource, out TState? state)" type="bool">
+  Attempts to get the state for the specified update without throwing an exception.
+  
+  **Parameters:**
+  - `keySource` (Update): The Telegram update to use as a key source
+  - `state` (out TState?): The state value if found; otherwise, default value
+  
+  **Returns:** `true` if state exists; otherwise `false`
+</ParamField>
+
+<ParamField path="HasState(Update keySource)" type="bool">
+  Checks whether a state exists for the specified update.
+  
+  **Parameters:**
+  - `keySource` (Update): The Telegram update to use as a key source
+  
+  **Returns:** `true` if a state exists; otherwise `false`
+</ParamField>
+
+<ParamField path="CreateState(Update keySource)" type="void">
+  Creates a new state for the specified update using the `DefaultState` value.
+  
+  **Parameters:**
+  - `keySource` (Update): The Telegram update to use as a key source
+</ParamField>
+
+<ParamField path="DeleteState(Update keySource)" type="void">
+  Removes the state for the specified update.
+  
+  **Parameters:**
+  - `keySource` (Update): The Telegram update to use as a key source
+</ParamField>
+
+<ParamField path="MoveForward(Update keySource)" type="void">
+  Moves the state forward to the next value. If no state exists, creates one with the default value first.
+  
+  **Parameters:**
+  - `keySource` (Update): The Telegram update to use as a key source
+</ParamField>
+
+<ParamField path="MoveBackward(Update keySource)" type="void">
+  Moves the state backward to the previous value. If no state exists, creates one with the default value.
+  
+  **Parameters:**
+  - `keySource` (Update): The Telegram update to use as a key source
+</ParamField>
+
+### Protected Abstract Methods
+
+These methods must be implemented by derived classes to define state transition logic:
+
+<ParamField path="MoveForward(TState currentState, TKey currentKey)" type="TState">
+  Calculates the next state value when moving forward.
+  
+  **Parameters:**
+  - `currentState` (TState): The current state value
+  - `currentKey` (TKey): The resolved key
+  
+  **Returns:** The new state value after moving forward
+</ParamField>
+
+<ParamField path="MoveBackward(TState currentState, TKey currentKey)" type="TState">
+  Calculates the previous state value when moving backward.
+  
+  **Parameters:**
+  - `currentState` (TState): The current state value
+  - `currentKey` (TKey): The resolved key
+  
+  **Returns:** The new state value after moving backward
+</ParamField>
+
+## IStateKeyResolver\<TKey\>
+
+Interface for resolving keys from Telegram updates.
+
+### Methods
+
+<ParamField path="ResolveKey(Update keySource)" type="TKey">
+  Extracts a key from the specified update.
+  
+  **Parameters:**
+  - `keySource` (Update): The Telegram update to resolve the key from
+  
+  **Returns:** The resolved key value
+</ParamField>
+
+## Built-in State Keepers
+
+Telegrator provides three built-in state keeper implementations:
+
+### NumericStateKeeper
+
+Manages integer-based states with automatic increment/decrement.
+
+```csharp
+public class NumericStateKeeper : StateKeeperBase<long, int>
+{
+    public override int DefaultState => 1;
+    
+    protected override int MoveForward(int currentState, long _)
+        => currentState + 1;
+    
+    protected override int MoveBackward(int currentState, long _)
+        => currentState - 1;
+}
+```
+
+### StringStateKeeper
+
+Manages string-based named states. Does not implement automatic navigation.
+
+```csharp
+public class StringStateKeeper : StateKeeperBase<long, string>
+{
+    public override string DefaultState => string.Empty;
+    
+    protected override string MoveForward(string currentState, long currentKey)
+        => throw new NotImplementedException();
+    
+    protected override string MoveBackward(string currentState, long currentKey)
+        => throw new NotImplementedException();
+}
+```
+
+### EnumStateKeeper\<TEnum\>
+
+Manages enum-based states with automatic navigation through enum values.
+
+```csharp
+public class EnumStateKeeper<TEnum> : ArrayStateKeeper<long, TEnum>
+    where TEnum : Enum
+{
+    public EnumStateKeeper()
+        : base(Enum.GetValues(typeof(TEnum)).Cast<TEnum>().ToArray())
+    { }
+    
+    public override TEnum DefaultState => ArrayStates.ElementAt(0);
+}
+```
+
+## ArrayStateKeeper\<TKey, TState\>
+
+Abstract base class for state keepers that navigate through a fixed array of states.
+
+### Constructor
+
+<ParamField path="ArrayStateKeeper(params TState[] states)" type="constructor">
+  Initializes the array state keeper with a sequence of allowed states.
+  
+  **Parameters:**
+  - `states` (params TState[]): The array of states that define the allowed sequence
+</ParamField>
+
+### Protected Members
+
+<ParamField path="ArrayStates" type="TState[]">
+  The array of states that defines the allowed state sequence for navigation.
+</ParamField>
+
+### Behavior
+
+- `MoveForward()` advances to the next element in the array
+- `MoveBackward()` retreats to the previous element in the array
+- Throws `ArgumentException` if current state is not found in the array
+- Throws `IndexOutOfRangeException` when attempting to move beyond array boundaries
+
+## Creating Custom State Keepers
+
+You can create custom state keeper implementations by inheriting from `StateKeeperBase`:
+
+```csharp
+using Telegrator.StateKeeping.Components;
+
+public class DateStateKeeper : StateKeeperBase<long, DateTime>
+{
+    public override DateTime DefaultState => DateTime.Today;
+    
+    protected override DateTime MoveForward(DateTime currentState, long _)
+    {
+        return currentState.AddDays(1);
+    }
+    
+    protected override DateTime MoveBackward(DateTime currentState, long _)
+    {
+        return currentState.AddDays(-1);
+    }
+}
+
+// Create a corresponding attribute
+public class DateStateAttribute : StateKeeperAttribute<long, DateTime, DateStateKeeper>
+{
+    public DateStateAttribute(DateTime myState)
+        : base(myState, new SenderIdResolver())
+    { }
+}
+```
+
+Then use it in your handlers:
+
+```csharp
+[DateState(/* specific date */)]
+[Command("schedule")]
+public class ScheduleHandler : IHandler
+{
+    public async Task<Result> Handle(IHandlerContainer container, CancellationToken cancellationToken)
+    {
+        // Your handler logic
+        return Result.Success;
+    }
+}
+```
+
+## State Storage
+
+State keepers use an in-memory dictionary for state storage:
+
+```csharp
+private readonly Dictionary<TKey, TState> States = [];
+```
+
+<Warning>
+  States are stored in memory and will be lost when the bot restarts. For persistent state storage, consider implementing a custom state keeper that uses a database or cache.
+</Warning>
+
+## Key Resolution
+
+The `KeyResolver` property determines how states are associated with updates. Telegrator provides two built-in resolvers:
+
+- **SenderIdResolver**: Resolves to the user ID of the message sender (per-user state)
+- **ChatIdResolver**: Resolves to the chat ID (per-chat state)
+
+Example of using chat-based states:
+
+```csharp
+public class NumericStateAttribute : StateKeeperAttribute<long, int, NumericStateKeeper>
+{
+    public NumericStateAttribute(int myState)
+        : base(myState, new ChatIdResolver()) // Use chat ID instead of sender ID
+    { }
+}
+```
+
+## Thread Safety
+
+<Warning>
+  The default state keeper implementations are not thread-safe. If your bot processes updates concurrently, consider implementing locking mechanisms or using thread-safe collections.
+</Warning>
+
+## Best Practices
+
+1. **Choose the Right State Type**: Use `NumericState` for linear flows, `StringState` for flexible flows, and `EnumState` for type-safe sequential flows
+
+2. **Handle State Absence**: Always check if a state exists before operating on it:
+   ```csharp
+   if (container.NumericStateKeeper().HasState(container.HandlingUpdate))
+   {
+       // Operate on state
+   }
+   ```
+
+3. **Clean Up States**: Delete states when conversations end to prevent memory leaks:
+   ```csharp
+   container.DeleteNumericState();
+   ```
+
+4. **Use SpecialState.AnyState for Common Actions**: Handlers like "cancel" or "help" should work regardless of current state:
+   ```csharp
+   [NumericState(SpecialState.AnyState)]
+   [Command("help")]
+   public class HelpHandler : IHandler { /* ... */ }
+   ```
+
+5. **Handle Navigation Exceptions**: Catch `IndexOutOfRangeException` when using `MoveForward`/`MoveBackward` to gracefully handle boundary conditions
+
+## See Also
+
+- [NumericState](/api/state/numeric-state) - Integer-based state management
+- [StringState](/api/state/string-state) - String-based state management
+- [EnumState](/api/state/enum-state) - Enum-based state management
+- [Filters](/api/filters) - General filtering concepts

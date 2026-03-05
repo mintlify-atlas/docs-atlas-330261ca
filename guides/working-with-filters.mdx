@@ -1,0 +1,424 @@
+---
+title: Working with Filters
+description: Learn how to combine filters and create custom filters to control handler execution in Telegrator
+---
+
+# Working with Filters
+
+Filters determine when a handler should execute. Telegrator provides a rich filtering system that allows you to declaratively specify handler trigger conditions.
+
+## Built-in Filters
+
+Telegrator includes many attribute-based filters you can apply to handlers:
+
+### Message Filters
+
+```csharp
+using Telegrator.Handlers;
+using Telegrator.Annotations;
+
+// Text content filters
+[MessageHandler]
+[TextContains("hello")]
+public class HelloTextHandler : MessageHandler { /* ... */ }
+
+[MessageHandler]
+[TextStartsWith("/")]
+public class SlashMessageHandler : MessageHandler { /* ... */ }
+
+[MessageHandler]
+[TextRegex(@"^\\d{4}$")] // Matches 4-digit numbers
+public class FourDigitHandler : MessageHandler { /* ... */ }
+
+// Message type filters
+[MessageHandler]
+[HasPhoto]
+public class PhotoHandler : MessageHandler { /* ... */ }
+
+[MessageHandler]
+[HasDocument]
+public class DocumentHandler : MessageHandler { /* ... */ }
+```
+
+### Chat Filters
+
+```csharp
+using Telegram.Bot.Types.Enums;
+
+// Chat type filter
+[MessageHandler]
+[ChatType(ChatType.Private)]
+public class PrivateChatHandler : MessageHandler { /* ... */ }
+
+[MessageHandler]
+[ChatType(ChatType.Group, ChatType.Supergroup)]
+public class GroupChatHandler : MessageHandler { /* ... */ }
+
+// Specific chat ID filter
+[MessageHandler]
+[ChatId(123456789)]
+public class SpecificChatHandler : MessageHandler { /* ... */ }
+```
+
+### Sender Filters
+
+```csharp
+// User ID filter
+[MessageHandler]
+[SenderId(987654321)]
+public class SpecificUserHandler : MessageHandler { /* ... */ }
+
+// Username filter
+[MessageHandler]
+[SenderUsername("john_doe")]
+public class UsernameHandler : MessageHandler { /* ... */ }
+
+// Bot/Human filter
+[MessageHandler]
+[SenderIsBot(false)] // Only human users
+public class HumanOnlyHandler : MessageHandler { /* ... */ }
+```
+
+### Command Filters
+
+```csharp
+// Command aliases
+[CommandHandler]
+[CommandAllias("start", "begin", "go")]
+public class StartHandler : CommandHandler { /* ... */ }
+
+// Command arguments
+[CommandHandler]
+[CommandAllias("set")]
+[CommandArgumentsCount(2)] // Requires exactly 2 arguments
+public class SetCommandHandler : CommandHandler { /* ... */ }
+```
+
+### Callback Query Filters
+
+```csharp
+// Callback data filters
+[CallbackQueryHandler]
+[CallbackData("confirm")]
+public class ConfirmHandler : CallbackQueryHandler { /* ... */ }
+
+[CallbackQueryHandler]
+[CallbackDataStartsWith("action_")]
+public class ActionHandler : CallbackQueryHandler { /* ... */ }
+
+[CallbackQueryHandler]
+[CallbackDataRegex(@"^page_\\d+$")]
+public class PaginationHandler : CallbackQueryHandler { /* ... */ }
+```
+
+## Combining Multiple Filters
+
+You can apply multiple filters to a handler - all filters must pass for the handler to execute:
+
+```csharp
+[MessageHandler]
+[ChatType(ChatType.Private)]
+[TextContains("help")]
+[SenderIsBot(false)]
+public class PrivateHelpHandler : MessageHandler
+{
+    public override async Task<Result> Execute(
+        IHandlerContainer<Message> container,
+        CancellationToken cancellation)
+    {
+        // This executes only if:
+        // - Message is from a private chat
+        // - Message contains "help"
+        // - Sender is not a bot
+        
+        await Reply("How can I help you?", cancellationToken: cancellation);
+        return Result.Ok();
+    }
+}
+```
+
+<Note>
+When multiple filters are applied, they use **AND** logic - all filters must pass.
+For **OR** logic, create multiple handlers or use custom filters.
+</Note>
+
+## Creating Custom Filters
+
+You can create custom filters by inheriting from `Filter<T>`:
+
+```csharp
+using Telegrator.Filters;
+using Telegrator.Filters.Components;
+using Telegram.Bot.Types;
+
+// Custom filter that checks if message length exceeds a limit
+public class MessageLengthFilter : Filter<Message>
+{
+    private readonly int _maxLength;
+    
+    public int MaxLength => _maxLength;
+    
+    public MessageLengthFilter(int maxLength)
+    {
+        _maxLength = maxLength;
+    }
+    
+    public override bool CanPass(FilterExecutionContext<Message> context)
+    {
+        return context.Input.Text?.Length <= _maxLength;
+    }
+}
+```
+
+### Using Custom Filters as Attributes
+
+Create a custom attribute that implements `IFilter<Update>`:
+
+```csharp
+using Telegrator.Filters.Components;
+using Telegram.Bot.Types;
+
+[AttributeUsage(AttributeTargets.Class, AllowMultiple = false)]
+public class MessageLengthAttribute : Attribute, IFilter<Update>
+{
+    private readonly int _maxLength;
+    
+    public bool IsCollectible => true;
+    public int MaxLength => _maxLength;
+    
+    public MessageLengthAttribute(int maxLength)
+    {
+        _maxLength = maxLength;
+    }
+    
+    public bool CanPass(FilterExecutionContext<Update> context)
+    {
+        if (context.Input.Message?.Text is not { } text)
+            return false;
+            
+        return text.Length <= _maxLength;
+    }
+}
+
+// Usage
+[MessageHandler]
+[MessageLength(100)] // Only messages up to 100 characters
+public class ShortMessageHandler : MessageHandler
+{
+    public override async Task<Result> Execute(
+        IHandlerContainer<Message> container,
+        CancellationToken cancellation)
+    {
+        await Reply("Thanks for the short message!", cancellationToken: cancellation);
+        return Result.Ok();
+    }
+}
+```
+
+## Programmatic Filters with Filter Methods
+
+You can create filters programmatically using the `Filter<T>.If()` method:
+
+```csharp
+using Telegrator.Filters;
+using Telegram.Bot.Types;
+
+// Create a filter from a lambda
+var isLongMessage = Filter<Message>.If(ctx => 
+    ctx.Input.Text?.Length > 100
+);
+
+// Use with handler builder (see Handler Builder guide)
+handlers.Message()
+    .AddFilter(isLongMessage)
+    .Build(async (container, cancellation) =>
+    {
+        await container.Reply("That's a long message!", cancellationToken: cancellation);
+        return Result.Ok();
+    });
+```
+
+## Logical Filter Combinations
+
+Combine filters using logical operators:
+
+### AND Filters
+
+```csharp
+var isPrivateChat = Filter<Update>.If(ctx => 
+    ctx.Input.Message?.Chat.Type == ChatType.Private
+);
+
+var hasText = Filter<Update>.If(ctx => 
+    !string.IsNullOrEmpty(ctx.Input.Message?.Text)
+);
+
+// Combine with AND
+var privateTextMessage = isPrivateChat.And(hasText);
+```
+
+### OR Filters
+
+```csharp
+var hasPhoto = Filter<Update>.If(ctx => 
+    ctx.Input.Message?.Photo?.Length > 0
+);
+
+var hasDocument = Filter<Update>.If(ctx => 
+    ctx.Input.Message?.Document != null
+);
+
+// Combine with OR
+var hasMediaAttachment = hasPhoto.Or(hasDocument);
+```
+
+### NOT Filters
+
+```csharp
+var isFromBot = Filter<Update>.If(ctx => 
+    ctx.Input.Message?.From?.IsBot == true
+);
+
+// Invert the filter
+var isFromHuman = isFromBot.Not();
+
+// Alternative syntax
+var isFromHuman2 = Filter<Update>.Not(isFromBot);
+```
+
+## Complex Filter Combinations
+
+Create sophisticated filter logic by combining multiple filters:
+
+```csharp
+var isPrivateChat = Filter<Update>.If(ctx => 
+    ctx.Input.Message?.Chat.Type == ChatType.Private
+);
+
+var isGroupChat = Filter<Update>.If(ctx => 
+    ctx.Input.Message?.Chat.Type == ChatType.Group ||
+    ctx.Input.Message?.Chat.Type == ChatType.Supergroup
+);
+
+var containsKeyword = Filter<Update>.If(ctx => 
+    ctx.Input.Message?.Text?.Contains("urgent", StringComparison.OrdinalIgnoreCase) == true
+);
+
+var isFromAdmin = Filter<Update>.If(ctx => 
+    ctx.Input.Message?.From?.Id == 123456789
+);
+
+// Complex: (Private chat AND contains keyword) OR is from admin
+var urgentOrAdmin = isPrivateChat.And(containsKeyword).Or(isFromAdmin);
+
+handlers.Message()
+    .AddFilter(urgentOrAdmin)
+    .Build(async (container, cancellation) =>
+    {
+        await container.Reply("Processing urgent request...", cancellationToken: cancellation);
+        return Result.Ok();
+    });
+```
+
+## Filter Execution Context
+
+Filters receive a `FilterExecutionContext<T>` that provides access to:
+
+```csharp
+public class CustomContextFilter : Filter<Message>
+{
+    public override bool CanPass(FilterExecutionContext<Message> context)
+    {
+        // Access the input
+        Message message = context.Input;
+        
+        // Access the bot client
+        ITelegramBotClient client = context.Client;
+        
+        // Access the full update
+        Update update = context.Update;
+        
+        // Access extra data dictionary (shared across filters)
+        Dictionary<string, object> extraData = context.ExtraData;
+        
+        // Store data for the handler to use
+        context.ExtraData["filterCheckTime"] = DateTime.UtcNow;
+        
+        return message.Text?.Length > 0;
+    }
+}
+```
+
+## Accessing Completed Filters in Handlers
+
+Handlers can access data from filters that passed:
+
+```csharp
+[MessageHandler]
+[TextRegex(@"^\\d+$")]
+public class NumberHandler : MessageHandler
+{
+    public override async Task<Result> Execute(
+        IHandlerContainer<Message> container,
+        CancellationToken cancellation)
+    {
+        // Access filters that passed
+        var textRegexFilter = CompletedFilters.Get<TextRegexAttribute>(0);
+        
+        // Access extra data set by filters
+        if (ExtraData.TryGetValue("filterCheckTime", out var checkTime))
+        {
+            var time = (DateTime)checkTime;
+            // Use the data...
+        }
+        
+        await Reply("Processing number...", cancellationToken: cancellation);
+        return Result.Ok();
+    }
+}
+```
+
+## Environment Filters
+
+Filter handlers based on deployment environment:
+
+```csharp
+[MessageHandler]
+[Environment("Development", "Staging")]
+public class DebugHandler : MessageHandler
+{
+    public override async Task<Result> Execute(
+        IHandlerContainer<Message> container,
+        CancellationToken cancellation)
+    {
+        // This handler only runs in Development or Staging
+        await Reply("Debug info: " + Input.Text, cancellationToken: cancellation);
+        return Result.Ok();
+    }
+}
+```
+
+<Warning>
+Be careful with complex filter combinations - they can make debugging difficult. 
+Consider breaking down very complex logic into multiple simpler handlers.
+</Warning>
+
+## Best Practices
+
+1. **Use descriptive names** for custom filters to make their purpose clear
+2. **Keep filters simple** - each filter should check one specific condition
+3. **Combine filters** using attributes rather than complex logic inside filters
+4. **Test filters independently** before combining them
+5. **Document custom filters** with XML comments explaining their purpose
+6. **Use IsCollectible** wisely - set to `true` if the filter stores data needed by the handler
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Managing State" icon="database" href="/guides/managing-state">
+    Learn how to implement stateful conversations and wizards
+  </Card>
+  <Card title="Handler Builder" icon="wrench" href="/guides/handler-builder">
+    Discover the fluent API for building handlers programmatically
+  </Card>
+</CardGroup>

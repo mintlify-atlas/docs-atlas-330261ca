@@ -1,0 +1,552 @@
+---
+title: Aspect-Oriented Programming
+description: Learn how to use IPreProcessor and IPostProcessor to add cross-cutting concerns in Telegrator
+---
+
+# Aspect-Oriented Programming
+
+Aspect-Oriented Programming (AOP) in Telegrator allows you to add cross-cutting concerns—like logging, authorization, validation, metrics, and error handling—to your handlers without cluttering their core logic.
+
+## Understanding Processors
+
+Telegrator provides two types of processors:
+
+- **IPreProcessor** - Executes **before** the handler's main logic
+- **IPostProcessor** - Executes **after** the handler's main logic
+
+Processors can:
+- Inspect and modify the execution context
+- Perform side effects (logging, metrics)
+- Short-circuit execution (return early)
+- Add data to `ExtraData` for handlers to use
+
+## IPreProcessor
+
+Pre-processors execute before a handler runs. They're perfect for:
+
+- **Authorization** - Check if user has permission
+- **Validation** - Verify input before processing
+- **Logging** - Record incoming requests
+- **Rate limiting** - Prevent abuse
+- **Data preparation** - Load data needed by the handler
+
+### Creating a Pre-Processor
+
+```csharp
+using Telegrator.Aspects;
+using Telegrator.Handlers.Components;
+
+public class LoggingPreProcessor : IPreProcessor
+{
+    private readonly ILogger<LoggingPreProcessor> _logger;
+    
+    public LoggingPreProcessor(ILogger<LoggingPreProcessor> logger)
+    {
+        _logger = logger;
+    }
+    
+    public async Task<Result> BeforeExecution(
+        IHandlerContainer container,
+        CancellationToken cancellationToken = default)
+    {
+        var update = container.HandlingUpdate;
+        var userId = update.Message?.From?.Id ?? 0;
+        var messageText = update.Message?.Text ?? "[no text]";
+        
+        _logger.LogInformation(
+            "Handler executing for user {UserId}: {MessageText}",
+            userId,
+            messageText);
+        
+        // Add timestamp to extra data
+        container.ExtraData["processingStartTime"] = DateTime.UtcNow;
+        
+        // Return Ok to continue execution
+        return Result.Ok();
+    }
+}
+```
+
+### Applying Pre-Processors
+
+Apply processors using the `[BeforeExecution]` attribute:
+
+```csharp
+using Telegrator.Handlers;
+using Telegrator.Aspects;
+using Telegram.Bot.Types;
+
+[MessageHandler]
+[BeforeExecution<LoggingPreProcessor>]
+public class ProcessedMessageHandler : MessageHandler
+{
+    public override async Task<Result> Execute(
+        IHandlerContainer<Message> container,
+        CancellationToken cancellation)
+    {
+        // LoggingPreProcessor runs before this method
+        
+        // Access data added by pre-processor
+        var startTime = (DateTime)ExtraData["processingStartTime"];
+        
+        await Reply("Message processed!", cancellationToken: cancellation);
+        return Result.Ok();
+    }
+}
+```
+
+## IPostProcessor
+
+Post-processors execute after a handler runs. They're perfect for:
+
+- **Cleanup** - Release resources
+- **Metrics** - Record execution time
+- **Logging** - Log results and errors
+- **Notifications** - Send alerts based on results
+- **Auditing** - Record actions for compliance
+
+### Creating a Post-Processor
+
+```csharp
+using Telegrator.Aspects;
+using Telegrator.Handlers.Components;
+
+public class MetricsPostProcessor : IPostProcessor
+{
+    private readonly IMetricsService _metrics;
+    
+    public MetricsPostProcessor(IMetricsService metrics)
+    {
+        _metrics = metrics;
+    }
+    
+    public async Task<Result> AfterExecution(
+        IHandlerContainer container,
+        CancellationToken cancellationToken)
+    {
+        // Calculate execution time
+        if (container.ExtraData.TryGetValue("processingStartTime", out var startObj))
+        {
+            var startTime = (DateTime)startObj;
+            var duration = DateTime.UtcNow - startTime;
+            
+            _metrics.RecordHandlerDuration(
+                container.GetType().Name,
+                duration.TotalMilliseconds);
+        }
+        
+        // Record update type
+        var updateType = container.HandlingUpdate.Type;
+        _metrics.IncrementUpdateCounter(updateType.ToString());
+        
+        return Result.Ok();
+    }
+}
+```
+
+### Applying Post-Processors
+
+```csharp
+[MessageHandler]
+[BeforeExecution<LoggingPreProcessor>]
+[AfterExecution<MetricsPostProcessor>]
+public class MonitoredHandler : MessageHandler
+{
+    public override async Task<Result> Execute(
+        IHandlerContainer<Message> container,
+        CancellationToken cancellation)
+    {
+        await Reply("Processing...", cancellationToken: cancellation);
+        
+        // Simulate some work
+        await Task.Delay(100, cancellation);
+        
+        return Result.Ok();
+    }
+}
+```
+
+## Authorization Example
+
+Create an authorization pre-processor:
+
+```csharp
+public class AdminOnlyPreProcessor : IPreProcessor
+{
+    private readonly IUserService _userService;
+    
+    public AdminOnlyPreProcessor(IUserService userService)
+    {
+        _userService = userService;
+    }
+    
+    public async Task<Result> BeforeExecution(
+        IHandlerContainer container,
+        CancellationToken cancellationToken = default)
+    {
+        var userId = container.HandlingUpdate.Message?.From?.Id ?? 0;
+        
+        if (userId == 0)
+        {
+            return Result.Fail("No user ID found");
+        }
+        
+        bool isAdmin = await _userService.IsAdminAsync(userId, cancellationToken);
+        
+        if (!isAdmin)
+        {
+            // Short-circuit execution - handler won't run
+            await container.Client.SendTextMessageAsync(
+                container.HandlingUpdate.Message!.Chat.Id,
+                "⛔ You don't have permission to use this command.",
+                cancellationToken: cancellationToken);
+            
+            return Result.Fail("Unauthorized");
+        }
+        
+        // User is admin, continue to handler
+        return Result.Ok();
+    }
+}
+
+// Usage
+[CommandHandler]
+[CommandAllias("admin")]
+[BeforeExecution<AdminOnlyPreProcessor>]
+public class AdminCommandHandler : CommandHandler
+{
+    public override async Task<Result> Execute(
+        IHandlerContainer<Message> container,
+        CancellationToken cancellation)
+    {
+        // This only runs if user is an admin
+        await Reply("Admin panel opened.", cancellationToken: cancellation);
+        return Result.Ok();
+    }
+}
+```
+
+<Note>
+When a pre-processor returns `Result.Fail()`, the handler's `Execute` method **will not run**.
+This allows you to short-circuit execution for authorization, validation, etc.
+</Note>
+
+## Validation Example
+
+Validate input before processing:
+
+```csharp
+public class EmailValidationPreProcessor : IPreProcessor
+{
+    public async Task<Result> BeforeExecution(
+        IHandlerContainer container,
+        CancellationToken cancellationToken = default)
+    {
+        var text = container.HandlingUpdate.Message?.Text;
+        
+        if (string.IsNullOrWhiteSpace(text))
+        {
+            await container.Client.SendTextMessageAsync(
+                container.HandlingUpdate.Message!.Chat.Id,
+                "Please provide an email address.",
+                cancellationToken: cancellationToken);
+            
+            return Result.Fail("No input provided");
+        }
+        
+        // Simple email validation
+        if (!text.Contains('@') || !text.Contains('.'))
+        {
+            await container.Client.SendTextMessageAsync(
+                container.HandlingUpdate.Message!.Chat.Id,
+                "Please provide a valid email address.",
+                cancellationToken: cancellationToken);
+            
+            return Result.Fail("Invalid email format");
+        }
+        
+        // Store validated email
+        container.ExtraData["validatedEmail"] = text;
+        
+        return Result.Ok();
+    }
+}
+
+[MessageHandler]
+[StringState("awaiting_email")]
+[BeforeExecution<EmailValidationPreProcessor>]
+public class EmailInputHandler : MessageHandler
+{
+    public override async Task<Result> Execute(
+        IHandlerContainer<Message> container,
+        CancellationToken cancellation)
+    {
+        // Email is already validated by pre-processor
+        var email = ExtraData["validatedEmail"] as string;
+        
+        await Reply($"Email saved: {email}", cancellationToken: cancellation);
+        Container.DeleteStringState();
+        
+        return Result.Ok();
+    }
+}
+```
+
+## Error Handling with Post-Processors
+
+Handle and log errors gracefully:
+
+```csharp
+public class ErrorHandlingPostProcessor : IPostProcessor
+{
+    private readonly ILogger<ErrorHandlingPostProcessor> _logger;
+    
+    public ErrorHandlingPostProcessor(ILogger<ErrorHandlingPostProcessor> logger)
+    {
+        _logger = logger;
+    }
+    
+    public async Task<Result> AfterExecution(
+        IHandlerContainer container,
+        CancellationToken cancellationToken)
+    {
+        // Check if handler execution had errors
+        if (container.ExtraData.TryGetValue("handlerException", out var exceptionObj))
+        {
+            var exception = exceptionObj as Exception;
+            var userId = container.HandlingUpdate.Message?.From?.Id ?? 0;
+            
+            _logger.LogError(
+                exception,
+                "Handler failed for user {UserId}",
+                userId);
+            
+            // Notify user
+            await container.Client.SendTextMessageAsync(
+                container.HandlingUpdate.Message!.Chat.Id,
+                "An error occurred. Our team has been notified.",
+                cancellationToken: cancellationToken);
+            
+            // Could also send alert to monitoring system
+            // await _alertingService.SendAlertAsync(exception);
+        }
+        
+        return Result.Ok();
+    }
+}
+```
+
+## Rate Limiting Example
+
+```csharp
+public class RateLimitingPreProcessor : IPreProcessor
+{
+    private readonly IRateLimitService _rateLimiter;
+    
+    public RateLimitingPreProcessor(IRateLimitService rateLimiter)
+    {
+        _rateLimiter = rateLimiter;
+    }
+    
+    public async Task<Result> BeforeExecution(
+        IHandlerContainer container,
+        CancellationToken cancellationToken = default)
+    {
+        var userId = container.HandlingUpdate.Message?.From?.Id ?? 0;
+        
+        bool allowed = await _rateLimiter.CheckRateLimitAsync(
+            userId,
+            maxRequests: 10,
+            timeWindow: TimeSpan.FromMinutes(1),
+            cancellationToken);
+        
+        if (!allowed)
+        {
+            await container.Client.SendTextMessageAsync(
+                container.HandlingUpdate.Message!.Chat.Id,
+                "⏱️ Too many requests. Please wait a moment and try again.",
+                cancellationToken: cancellationToken);
+            
+            return Result.Fail("Rate limit exceeded");
+        }
+        
+        return Result.Ok();
+    }
+}
+
+[CommandHandler]
+[CommandAllias("search")]
+[BeforeExecution<RateLimitingPreProcessor>]
+public class SearchCommandHandler : CommandHandler
+{
+    public override async Task<Result> Execute(
+        IHandlerContainer<Message> container,
+        CancellationToken cancellation)
+    {
+        // Perform expensive search operation
+        await Reply("Searching...", cancellationToken: cancellation);
+        return Result.Ok();
+    }
+}
+```
+
+## Chaining Multiple Processors
+
+Apply multiple processors to a single handler:
+
+```csharp
+[CommandHandler]
+[CommandAllias("sensitive")]
+[BeforeExecution<RateLimitingPreProcessor>]
+[BeforeExecution<AdminOnlyPreProcessor>]
+[BeforeExecution<LoggingPreProcessor>]
+[AfterExecution<MetricsPostProcessor>]
+[AfterExecution<ErrorHandlingPostProcessor>]
+public class SensitiveCommandHandler : CommandHandler
+{
+    public override async Task<Result> Execute(
+        IHandlerContainer<Message> container,
+        CancellationToken cancellation)
+    {
+        // This handler has:
+        // 1. Rate limiting
+        // 2. Admin-only authorization
+        // 3. Logging
+        // 4. Metrics collection
+        // 5. Error handling
+        
+        await Reply("Sensitive operation completed.", cancellationToken: cancellation);
+        return Result.Ok();
+    }
+}
+```
+
+<Note>
+Processors execute in the order they are declared. Pre-processors run top-to-bottom,
+post-processors run bottom-to-top (reverse order).
+</Note>
+
+## Dependency Injection
+
+Processors support dependency injection when using Telegrator.Hosting:
+
+```csharp
+// Startup.cs or Program.cs
+services.AddSingleton<IMetricsService, MetricsService>();
+services.AddSingleton<IUserService, UserService>();
+services.AddTransient<LoggingPreProcessor>();
+services.AddTransient<MetricsPostProcessor>();
+services.AddTransient<AdminOnlyPreProcessor>();
+
+// Processors will be resolved from DI container automatically
+```
+
+## Reusable Processor Library
+
+Create a library of reusable processors:
+
+```csharp
+// Common processors that can be reused across handlers
+public class CommonProcessors
+{
+    public class NotBotPreProcessor : IPreProcessor
+    {
+        public async Task<Result> BeforeExecution(
+            IHandlerContainer container,
+            CancellationToken cancellationToken = default)
+        {
+            if (container.HandlingUpdate.Message?.From?.IsBot == true)
+            {
+                return Result.Fail("Bots not allowed");
+            }
+            return Result.Ok();
+        }
+    }
+    
+    public class PrivateChatOnlyPreProcessor : IPreProcessor
+    {
+        public async Task<Result> BeforeExecution(
+            IHandlerContainer container,
+            CancellationToken cancellationToken = default)
+        {
+            if (container.HandlingUpdate.Message?.Chat.Type != ChatType.Private)
+            {
+                await container.Client.SendTextMessageAsync(
+                    container.HandlingUpdate.Message!.Chat.Id,
+                    "This command only works in private chats.",
+                    cancellationToken: cancellationToken);
+                
+                return Result.Fail("Not a private chat");
+            }
+            return Result.Ok();
+        }
+    }
+}
+
+// Usage
+[CommandHandler]
+[CommandAllias("profile")]
+[BeforeExecution<CommonProcessors.NotBotPreProcessor>]
+[BeforeExecution<CommonProcessors.PrivateChatOnlyPreProcessor>]
+public class ProfileCommandHandler : CommandHandler
+{
+    public override async Task<Result> Execute(
+        IHandlerContainer<Message> container,
+        CancellationToken cancellation)
+    {
+        await Reply("Your profile...", cancellationToken: cancellation);
+        return Result.Ok();
+    }
+}
+```
+
+## Best Practices
+
+1. **Keep processors focused** - Each processor should handle one concern
+2. **Use meaningful names** - Name processors after what they do (e.g., `AuthorizationPreProcessor`)
+3. **Document processor behavior** - Explain what conditions cause failure
+4. **Make processors reusable** - Design them to work with multiple handlers
+5. **Handle cancellation** - Respect the `CancellationToken`
+6. **Log processor failures** - Help with debugging authorization and validation issues
+7. **Use DI for dependencies** - Don't hardcode services in processors
+8. **Test processors independently** - Unit test each processor in isolation
+
+## Common Use Cases
+
+<CardGroup cols={2}>
+  <Card title="Authorization" icon="lock">
+    Check user permissions before executing sensitive operations
+  </Card>
+  <Card title="Validation" icon="check">
+    Verify input format and content before processing
+  </Card>
+  <Card title="Logging" icon="file-lines">
+    Record request details and execution results
+  </Card>
+  <Card title="Metrics" icon="chart-line">
+    Collect performance and usage statistics
+  </Card>
+  <Card title="Rate Limiting" icon="gauge">
+    Prevent abuse by limiting request frequency
+  </Card>
+  <Card title="Caching" icon="database">
+    Cache expensive operations and return cached results
+  </Card>
+  <Card title="Error Handling" icon="triangle-exclamation">
+    Catch and handle errors gracefully
+  </Card>
+  <Card title="Auditing" icon="clipboard-list">
+    Track all actions for compliance and security
+  </Card>
+</CardGroup>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Handler Builder" icon="wrench" href="/guides/handler-builder">
+    Learn the fluent API for building handlers programmatically
+  </Card>
+  <Card title="Creating Handlers" icon="code" href="/guides/creating-handlers">
+    Review handler creation fundamentals
+  </Card>
+</CardGroup>

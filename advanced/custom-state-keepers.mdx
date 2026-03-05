@@ -1,0 +1,523 @@
+---
+title: "Custom State Keepers"
+description: "Learn how to implement custom state keepers for managing conversation state"
+---
+
+## Overview
+
+State keepers in Telegrator manage conversational state for users or chats. By extending `StateKeeperBase<TKey, TState>`, you can create custom state management solutions tailored to your bot's specific needs.
+
+## Understanding StateKeeperBase
+
+The `StateKeeperBase<TKey, TState>` class provides the foundation for state management:
+
+- **TKey**: The type used to identify state (e.g., `long` for user ID or chat ID)
+- **TState**: The type of state being managed (e.g., `string`, enum, custom class)
+- **Key Resolution**: Automatic extraction of keys from updates via `IStateKeyResolver<TKey>`
+- **State Navigation**: Methods for moving forward/backward through state sequences
+
+From `/home/daytona/workspace/source/Telegrator/StateKeeping/Components/StateKeeperBase.cs`:
+
+```csharp
+public abstract class StateKeeperBase<TKey, TState> 
+    where TState : notnull 
+    where TKey : notnull
+{
+    public IStateKeyResolver<TKey> KeyResolver { get; set; } = null!;
+    public abstract TState DefaultState { get; }
+    
+    public virtual void SetState(Update keySource, TState newState)
+    public virtual TState GetState(Update keySource)
+    public virtual bool TryGetState(Update keySource, out TState? state)
+    public virtual bool HasState(Update keySource)
+    public virtual void CreateState(Update keySource)
+    public virtual void DeleteState(Update keySource)
+    public virtual void MoveForward(Update keySource)
+    public virtual void MoveBackward(Update keySource)
+    
+    protected abstract TState MoveForward(TState currentState, TKey currentKey);
+    protected abstract TState MoveBackward(TState currentState, TKey currentKey);
+}
+```
+
+## Built-in State Keepers
+
+Telegrator provides several built-in state keepers:
+
+### StringStateKeeper
+
+Manages string-based states (from `/home/daytona/workspace/source/Telegrator/StateKeeping/StringStateKeeper.cs:10`):
+
+```csharp
+public class StringStateKeeper : StateKeeperBase<long, string>
+{
+    public override string DefaultState => string.Empty;
+    
+    protected override string MoveForward(string currentState, long currentKey)
+    {
+        throw new NotImplementedException();
+    }
+    
+    protected override string MoveBackward(string currentState, long currentKey)
+    {
+        throw new NotImplementedException();
+    }
+}
+```
+
+### EnumStateKeeper
+
+Manages enum-based state machines (from `/home/daytona/workspace/source/Telegrator/StateKeeping/EnumStateKeeper.cs:11`):
+
+```csharp
+public class EnumStateKeeper<TEnum> : ArrayStateKeeper<long, TEnum> 
+    where TEnum : Enum
+{
+    public EnumStateKeeper() 
+        : base(Enum.GetValues(typeof(TEnum)).Cast<TEnum>().ToArray())
+    {
+    }
+    
+    public override TEnum DefaultState => ArrayStates.ElementAt(0);
+}
+```
+
+## Creating a Custom State Keeper
+
+### Example 1: Numeric Range State Keeper
+
+```csharp
+using Telegram.Bot.Types;
+using Telegrator.StateKeeping.Components;
+
+public class NumericRangeStateKeeper : StateKeeperBase<long, int>
+{
+    private readonly int _minValue;
+    private readonly int _maxValue;
+    private readonly int _defaultValue;
+
+    public NumericRangeStateKeeper(int minValue, int maxValue, int defaultValue)
+    {
+        _minValue = minValue;
+        _maxValue = maxValue;
+        _defaultValue = defaultValue;
+        KeyResolver = new SenderIdResolver();
+    }
+
+    public override int DefaultState => _defaultValue;
+
+    protected override int MoveForward(int currentState, long currentKey)
+    {
+        var nextState = currentState + 1;
+        return nextState > _maxValue ? _maxValue : nextState;
+    }
+
+    protected override int MoveBackward(int currentState, long currentKey)
+    {
+        var prevState = currentState - 1;
+        return prevState < _minValue ? _minValue : prevState;
+    }
+}
+```
+
+### Example 2: Multi-Step Form State Keeper
+
+```csharp
+public enum FormStep
+{
+    Name,
+    Email,
+    PhoneNumber,
+    Address,
+    Confirmation,
+    Complete
+}
+
+public class FormStateKeeper : StateKeeperBase<long, FormStep>
+{
+    public FormStateKeeper()
+    {
+        KeyResolver = new SenderIdResolver();
+    }
+
+    public override FormStep DefaultState => FormStep.Name;
+
+    protected override FormStep MoveForward(FormStep currentState, long currentKey)
+    {
+        return currentState switch
+        {
+            FormStep.Name => FormStep.Email,
+            FormStep.Email => FormStep.PhoneNumber,
+            FormStep.PhoneNumber => FormStep.Address,
+            FormStep.Address => FormStep.Confirmation,
+            FormStep.Confirmation => FormStep.Complete,
+            FormStep.Complete => FormStep.Complete,
+            _ => FormStep.Name
+        };
+    }
+
+    protected override FormStep MoveBackward(FormStep currentState, long currentKey)
+    {
+        return currentState switch
+        {
+            FormStep.Email => FormStep.Name,
+            FormStep.PhoneNumber => FormStep.Email,
+            FormStep.Address => FormStep.PhoneNumber,
+            FormStep.Confirmation => FormStep.Address,
+            FormStep.Complete => FormStep.Confirmation,
+            FormStep.Name => FormStep.Name,
+            _ => FormStep.Name
+        };
+    }
+}
+```
+
+### Example 3: Complex State with Data
+
+```csharp
+public class UserSessionState
+{
+    public string CurrentMenu { get; set; } = "main";
+    public Dictionary<string, object> SessionData { get; set; } = new();
+    public DateTime LastActivity { get; set; } = DateTime.UtcNow;
+
+    public override bool Equals(object? obj)
+    {
+        return obj is UserSessionState state && 
+               CurrentMenu == state.CurrentMenu;
+    }
+
+    public override int GetHashCode() => CurrentMenu.GetHashCode();
+}
+
+public class SessionStateKeeper : StateKeeperBase<long, UserSessionState>
+{
+    public SessionStateKeeper()
+    {
+        KeyResolver = new SenderIdResolver();
+    }
+
+    public override UserSessionState DefaultState => new()
+    {
+        CurrentMenu = "main",
+        LastActivity = DateTime.UtcNow
+    };
+
+    protected override UserSessionState MoveForward(UserSessionState currentState, long currentKey)
+    {
+        // Custom navigation logic based on current menu
+        var nextMenu = currentState.CurrentMenu switch
+        {
+            "main" => "settings",
+            "settings" => "profile",
+            "profile" => "main",
+            _ => "main"
+        };
+
+        return new UserSessionState
+        {
+            CurrentMenu = nextMenu,
+            SessionData = currentState.SessionData,
+            LastActivity = DateTime.UtcNow
+        };
+    }
+
+    protected override UserSessionState MoveBackward(UserSessionState currentState, long currentKey)
+    {
+        var prevMenu = currentState.CurrentMenu switch
+        {
+            "settings" => "main",
+            "profile" => "settings",
+            "main" => "main",
+            _ => "main"
+        };
+
+        return new UserSessionState
+        {
+            CurrentMenu = prevMenu,
+            SessionData = currentState.SessionData,
+            LastActivity = DateTime.UtcNow
+        };
+    }
+}
+```
+
+## State Key Resolvers
+
+Key resolvers extract the key from updates. Telegrator provides two built-in resolvers:
+
+### SenderIdResolver
+
+From `/home/daytona/workspace/source/Telegrator/StateKeeping/SenderIdResolver.cs:10`:
+
+```csharp
+public class SenderIdResolver : IStateKeyResolver<long>
+{
+    public long ResolveKey(Update keySource)
+        => keySource.GetSenderId() ?? 
+           throw new ArgumentException("Cannot resolve SenderID for this Update");
+}
+```
+
+### ChatIdResolver
+
+From `/home/daytona/workspace/source/Telegrator/StateKeeping/ChatIdResolver.cs:10`:
+
+```csharp
+public class ChatIdResolver : IStateKeyResolver<long>
+{
+    public long ResolveKey(Update keySource)
+        => keySource.GetChatId() ?? 
+           throw new ArgumentException("Cannot resolve ChatID for this Update");
+}
+```
+
+### Custom Key Resolver
+
+```csharp
+public class CompositeKeyResolver : IStateKeyResolver<string>
+{
+    public string ResolveKey(Update keySource)
+    {
+        var userId = keySource.GetSenderId();
+        var chatId = keySource.GetChatId();
+        
+        return $"{chatId}:{userId}";
+    }
+}
+
+public class CompositeStateKeeper : StateKeeperBase<string, MyState>
+{
+    public CompositeStateKeeper()
+    {
+        KeyResolver = new CompositeKeyResolver();
+    }
+    
+    // ... implement abstract members
+}
+```
+
+## Creating State Keeper Attributes
+
+To use your custom state keeper with handlers, create a state keeper attribute:
+
+```csharp
+using Telegrator.Attributes.Components;
+using Telegrator.Filters.Components;
+
+[AttributeUsage(AttributeTargets.Class | AttributeTargets.Method, 
+    AllowMultiple = false, Inherited = true)]
+public class FormStateAttribute : StateKeeperAttributeBase
+{
+    public static readonly FormStateKeeper Shared = new();
+    public FormStep ExpectedStep { get; set; }
+
+    public FormStateAttribute(FormStep expectedStep) 
+        : base(typeof(FormStateKeeper))
+    {
+        ExpectedStep = expectedStep;
+    }
+
+    public override bool CanPass(FilterExecutionContext<Update> context)
+    {
+        if (!Shared.TryGetState(context.Update, out var currentState))
+            return ExpectedStep == FormStep.Name; // Start of form
+            
+        return currentState == ExpectedStep;
+    }
+}
+```
+
+## Using State Keepers in Handlers
+
+```csharp
+[MessageHandler]
+[FormState(FormStep.Name)]
+public class CollectNameHandler : MessageHandler
+{
+    protected override async Task<Result> ExecuteInternal(
+        IHandlerContainer container, 
+        CancellationToken cancellationToken)
+    {
+        var name = container.GetMessage().Text;
+        
+        // Store the name in session data
+        // ... 
+        
+        // Move to next step
+        FormStateAttribute.Shared.MoveForward(container.HandlingUpdate);
+        
+        await container.Client.SendTextMessageAsync(
+            container.GetChatId(),
+            "Great! Now please enter your email address.");
+            
+        return Result.Ok();
+    }
+}
+
+[MessageHandler]
+[FormState(FormStep.Email)]
+public class CollectEmailHandler : MessageHandler
+{
+    protected override async Task<Result> ExecuteInternal(
+        IHandlerContainer container, 
+        CancellationToken cancellationToken)
+    {
+        var email = container.GetMessage().Text;
+        
+        // Validate and store email
+        // ...
+        
+        // Move to next step
+        FormStateAttribute.Shared.MoveForward(container.HandlingUpdate);
+        
+        await container.Client.SendTextMessageAsync(
+            container.GetChatId(),
+            "Thanks! Now please enter your phone number.");
+            
+        return Result.Ok();
+    }
+}
+```
+
+## Extension Methods for State Keepers
+
+Create extension methods for convenient state management (similar to the built-in ones from `/home/daytona/workspace/source/Telegrator/StateKeeping/StringStateKeeper.cs:33`):
+
+```csharp
+public static class FormStateExtensions
+{
+    public static FormStateKeeper FormStateKeeper(this IHandlerContainer _)
+        => FormStateAttribute.Shared;
+
+    public static void CreateFormState(this IHandlerContainer container)
+        => container.FormStateKeeper().CreateState(container.HandlingUpdate);
+
+    public static void DeleteFormState(this IHandlerContainer container)
+        => container.FormStateKeeper().DeleteState(container.HandlingUpdate);
+
+    public static void SetFormState(this IHandlerContainer container, FormStep step)
+        => container.FormStateKeeper().SetState(container.HandlingUpdate, step);
+
+    public static FormStep GetFormState(this IHandlerContainer container)
+        => container.FormStateKeeper().GetState(container.HandlingUpdate);
+
+    public static void ForwardFormState(this IHandlerContainer container)
+        => container.FormStateKeeper().MoveForward(container.HandlingUpdate);
+
+    public static void BackwardFormState(this IHandlerContainer container)
+        => container.FormStateKeeper().MoveBackward(container.HandlingUpdate);
+}
+```
+
+Usage:
+
+```csharp
+protected override async Task<Result> ExecuteInternal(
+    IHandlerContainer container, 
+    CancellationToken cancellationToken)
+{
+    // Get current state
+    var currentStep = container.GetFormState();
+    
+    // Set state directly
+    container.SetFormState(FormStep.Confirmation);
+    
+    // Navigate state
+    container.ForwardFormState();
+    container.BackwardFormState();
+    
+    // Clean up state
+    container.DeleteFormState();
+    
+    return Result.Ok();
+}
+```
+
+## State Persistence
+
+<Warning>
+  The default `StateKeeperBase` stores state in memory only. For production bots, implement persistence by overriding state management methods.
+</Warning>
+
+```csharp
+public class PersistentFormStateKeeper : StateKeeperBase<long, FormStep>
+{
+    private readonly IStateRepository _repository;
+
+    public PersistentFormStateKeeper(IStateRepository repository)
+    {
+        _repository = repository;
+        KeyResolver = new SenderIdResolver();
+    }
+
+    public override FormStep DefaultState => FormStep.Name;
+
+    public override void SetState(Update keySource, FormStep newState)
+    {
+        var key = KeyResolver.ResolveKey(keySource);
+        _repository.SaveState(key, newState);
+    }
+
+    public override FormStep GetState(Update keySource)
+    {
+        var key = KeyResolver.ResolveKey(keySource);
+        return _repository.GetState(key) ?? DefaultState;
+    }
+
+    public override bool TryGetState(Update keySource, out FormStep? state)
+    {
+        var key = KeyResolver.ResolveKey(keySource);
+        state = _repository.GetState(key);
+        return state != null;
+    }
+
+    public override void DeleteState(Update keySource)
+    {
+        var key = KeyResolver.ResolveKey(keySource);
+        _repository.DeleteState(key);
+    }
+
+    protected override FormStep MoveForward(FormStep currentState, long currentKey)
+    {
+        // State transition logic
+        return currentState switch
+        {
+            FormStep.Name => FormStep.Email,
+            FormStep.Email => FormStep.PhoneNumber,
+            // ...
+            _ => FormStep.Name
+        };
+    }
+
+    protected override FormStep MoveBackward(FormStep currentState, long currentKey)
+    {
+        // Reverse state transition logic
+        return currentState switch
+        {
+            FormStep.Email => FormStep.Name,
+            FormStep.PhoneNumber => FormStep.Email,
+            // ...
+            _ => FormStep.Name
+        };
+    }
+}
+```
+
+## Best Practices
+
+<Tip>
+  **Use enums for finite state machines**: When your state has a fixed set of values, use enum-based state keepers for type safety.
+</Tip>
+
+<Tip>
+  **Implement timeouts**: Track `LastActivity` and clean up stale states to prevent memory leaks.
+</Tip>
+
+<Note>
+  **Thread safety**: The built-in `StateKeeperBase` uses a `Dictionary` which is not thread-safe. For high-concurrency scenarios, use `ConcurrentDictionary` or implement proper locking.
+</Note>
+
+<Warning>
+  **State size**: Keep state objects small and focused. Store large data separately and reference it by ID in the state.
+</Warning>

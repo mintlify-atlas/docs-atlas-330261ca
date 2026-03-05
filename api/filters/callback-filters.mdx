@@ -1,0 +1,536 @@
+---
+title: Callback Filters
+description: Filter callback query updates in Telegrator
+---
+
+## Overview
+
+Callback filters allow you to handle callback queries from inline keyboard buttons. These filters work specifically with `CallbackQuery` updates, which are triggered when users interact with inline buttons in your bot's messages.
+
+## Understanding Callback Queries
+
+Callback queries are generated when users press inline keyboard buttons. Each button can have associated data that is sent back to your bot when pressed.
+
+**Creating an Inline Keyboard:**
+
+```csharp
+var keyboard = new InlineKeyboardMarkup(new[]
+{
+    new[]
+    {
+        InlineKeyboardButton.WithCallbackData("Option 1", "opt_1"),
+        InlineKeyboardButton.WithCallbackData("Option 2", "opt_2")
+    },
+    new[]
+    {
+        InlineKeyboardButton.WithCallbackData("Cancel", "cancel")
+    }
+});
+
+await Bot.SendTextMessageAsync(
+    chatId: ChatId,
+    text: "Choose an option:",
+    replyMarkup: keyboard
+);
+```
+
+## Callback Data Matching
+
+### CallbackData
+
+Filters callback queries by their data field.
+
+<ParamField path="data" type="string" required>
+  The callback data string to match.
+</ParamField>
+
+**Example:**
+
+```csharp
+[CallbackData("opt_1")]
+public async Task HandleOption1()
+{
+    // Triggered when user presses button with callback_data="opt_1"
+    await Bot.AnswerCallbackQueryAsync(
+        Update.CallbackQuery.Id,
+        "You selected Option 1"
+    );
+}
+
+[CallbackData("opt_2")]
+public async Task HandleOption2()
+{
+    await Bot.AnswerCallbackQueryAsync(
+        Update.CallbackQuery.Id,
+        "You selected Option 2"
+    );
+}
+
+[CallbackData("cancel")]
+public async Task HandleCancel()
+{
+    await Bot.AnswerCallbackQueryAsync(
+        Update.CallbackQuery.Id,
+        "Cancelled"
+    );
+    
+    // Delete the message with buttons
+    await Bot.DeleteMessageAsync(
+        Update.CallbackQuery.Message.Chat.Id,
+        Update.CallbackQuery.Message.MessageId
+    );
+}
+```
+
+## Inline Message Identification
+
+### CallbackInlineId
+
+Filters callback queries that belong to a specific inline message by its ID.
+
+<ParamField path="inlineMessageId" type="string" required>
+  The inline message ID to match.
+</ParamField>
+
+**Example:**
+
+```csharp
+[CallbackInlineId("msg_12345")]
+public async Task HandleSpecificInlineMessage()
+{
+    // Only handle callbacks from a specific inline message
+    await Bot.AnswerCallbackQueryAsync(
+        Update.CallbackQuery.Id,
+        "Callback from specific message"
+    );
+}
+```
+
+**Note:** Inline message IDs are used for messages sent via inline mode. For regular messages, use the callback data to identify the context.
+
+## Practical Examples
+
+### Simple Menu System
+
+```csharp
+public async Task ShowMainMenu()
+{
+    var keyboard = new InlineKeyboardMarkup(new[]
+    {
+        new[] 
+        { 
+            InlineKeyboardButton.WithCallbackData("⚙️ Settings", "menu_settings"),
+            InlineKeyboardButton.WithCallbackData("ℹ️ Help", "menu_help")
+        },
+        new[] 
+        { 
+            InlineKeyboardButton.WithCallbackData("📊 Stats", "menu_stats"),
+            InlineKeyboardButton.WithCallbackData("❌ Close", "menu_close")
+        }
+    });
+    
+    await Bot.SendTextMessageAsync(
+        ChatId,
+        "Main Menu:",
+        replyMarkup: keyboard
+    );
+}
+
+[CallbackData("menu_settings")]
+public async Task HandleSettingsMenu()
+{
+    await Bot.AnswerCallbackQueryAsync(Update.CallbackQuery.Id);
+    await ShowSettingsMenu();
+}
+
+[CallbackData("menu_help")]
+public async Task HandleHelpMenu()
+{
+    await Bot.AnswerCallbackQueryAsync(Update.CallbackQuery.Id);
+    await ShowHelpMenu();
+}
+
+[CallbackData("menu_stats")]
+public async Task HandleStatsMenu()
+{
+    await Bot.AnswerCallbackQueryAsync(Update.CallbackQuery.Id);
+    await ShowStatsMenu();
+}
+
+[CallbackData("menu_close")]
+public async Task HandleCloseMenu()
+{
+    await Bot.AnswerCallbackQueryAsync(Update.CallbackQuery.Id, "Menu closed");
+    await Bot.DeleteMessageAsync(
+        Update.CallbackQuery.Message.Chat.Id,
+        Update.CallbackQuery.Message.MessageId
+    );
+}
+```
+
+### Confirmation Dialog
+
+```csharp
+public async Task AskForConfirmation(string action)
+{
+    var keyboard = new InlineKeyboardMarkup(new[]
+    {
+        new[] 
+        {
+            InlineKeyboardButton.WithCallbackData("✅ Yes", $"confirm_{action}"),
+            InlineKeyboardButton.WithCallbackData("❌ No", $"cancel_{action}")
+        }
+    });
+    
+    await Bot.SendTextMessageAsync(
+        ChatId,
+        $"Are you sure you want to {action}?",
+        replyMarkup: keyboard
+    );
+}
+
+[CallbackData("confirm_delete")]
+public async Task HandleConfirmDelete()
+{
+    await Bot.AnswerCallbackQueryAsync(
+        Update.CallbackQuery.Id,
+        "Deleting..."
+    );
+    
+    await PerformDelete();
+    
+    await Bot.EditMessageTextAsync(
+        Update.CallbackQuery.Message.Chat.Id,
+        Update.CallbackQuery.Message.MessageId,
+        "✓ Deleted successfully"
+    );
+}
+
+[CallbackData("cancel_delete")]
+public async Task HandleCancelDelete()
+{
+    await Bot.AnswerCallbackQueryAsync(
+        Update.CallbackQuery.Id,
+        "Cancelled"
+    );
+    
+    await Bot.DeleteMessageAsync(
+        Update.CallbackQuery.Message.Chat.Id,
+        Update.CallbackQuery.Message.MessageId
+    );
+}
+```
+
+### Paginated List
+
+```csharp
+public async Task ShowPage(int pageNumber)
+{
+    var items = GetPageItems(pageNumber);
+    var totalPages = GetTotalPages();
+    
+    var buttons = new List<InlineKeyboardButton[]>();
+    
+    // Add item buttons
+    foreach (var item in items)
+    {
+        buttons.Add(new[] 
+        { 
+            InlineKeyboardButton.WithCallbackData(item.Name, $"item_{item.Id}") 
+        });
+    }
+    
+    // Add navigation buttons
+    var navButtons = new List<InlineKeyboardButton>();
+    if (pageNumber > 1)
+        navButtons.Add(InlineKeyboardButton.WithCallbackData("⬅️ Previous", $"page_{pageNumber - 1}"));
+    
+    navButtons.Add(InlineKeyboardButton.WithCallbackData($"{pageNumber}/{totalPages}", "page_info"));
+    
+    if (pageNumber < totalPages)
+        navButtons.Add(InlineKeyboardButton.WithCallbackData("Next ➡️", $"page_{pageNumber + 1}"));
+    
+    buttons.Add(navButtons.ToArray());
+    
+    var keyboard = new InlineKeyboardMarkup(buttons);
+    
+    await Bot.SendTextMessageAsync(
+        ChatId,
+        "Select an item:",
+        replyMarkup: keyboard
+    );
+}
+
+[CallbackData("page_1")]
+public async Task HandlePage1()
+{
+    await Bot.AnswerCallbackQueryAsync(Update.CallbackQuery.Id);
+    await ShowPage(1);
+}
+
+[CallbackData("page_2")]
+public async Task HandlePage2()
+{
+    await Bot.AnswerCallbackQueryAsync(Update.CallbackQuery.Id);
+    await ShowPage(2);
+}
+
+// For dynamic page numbers, you might need to parse the callback data
+public async Task HandlePageCallback(string callbackData)
+{
+    if (callbackData.StartsWith("page_") && 
+        int.TryParse(callbackData.Substring(5), out int pageNum))
+    {
+        await ShowPage(pageNum);
+    }
+}
+```
+
+### Toggle Button
+
+```csharp
+private bool notificationsEnabled = true;
+
+public async Task ShowNotificationSettings()
+{
+    var status = notificationsEnabled ? "Enabled ✅" : "Disabled ❌";
+    var buttonText = notificationsEnabled ? "Disable" : "Enable";
+    var buttonData = notificationsEnabled ? "notif_disable" : "notif_enable";
+    
+    var keyboard = new InlineKeyboardMarkup(new[]
+    {
+        new[] { InlineKeyboardButton.WithCallbackData(buttonText, buttonData) }
+    });
+    
+    await Bot.SendTextMessageAsync(
+        ChatId,
+        $"Notifications: {status}",
+        replyMarkup: keyboard
+    );
+}
+
+[CallbackData("notif_enable")]
+public async Task HandleEnableNotifications()
+{
+    notificationsEnabled = true;
+    
+    await Bot.AnswerCallbackQueryAsync(
+        Update.CallbackQuery.Id,
+        "Notifications enabled"
+    );
+    
+    // Update the message
+    var keyboard = new InlineKeyboardMarkup(new[]
+    {
+        new[] { InlineKeyboardButton.WithCallbackData("Disable", "notif_disable") }
+    });
+    
+    await Bot.EditMessageTextAsync(
+        Update.CallbackQuery.Message.Chat.Id,
+        Update.CallbackQuery.Message.MessageId,
+        "Notifications: Enabled ✅",
+        replyMarkup: keyboard
+    );
+}
+
+[CallbackData("notif_disable")]
+public async Task HandleDisableNotifications()
+{
+    notificationsEnabled = false;
+    
+    await Bot.AnswerCallbackQueryAsync(
+        Update.CallbackQuery.Id,
+        "Notifications disabled"
+    );
+    
+    var keyboard = new InlineKeyboardMarkup(new[]
+    {
+        new[] { InlineKeyboardButton.WithCallbackData("Enable", "notif_enable") }
+    });
+    
+    await Bot.EditMessageTextAsync(
+        Update.CallbackQuery.Message.Chat.Id,
+        Update.CallbackQuery.Message.MessageId,
+        "Notifications: Disabled ❌",
+        replyMarkup: keyboard
+    );
+}
+```
+
+### Admin Actions
+
+```csharp
+public async Task ShowUserActions(long userId)
+{
+    var keyboard = new InlineKeyboardMarkup(new[]
+    {
+        new[] 
+        { 
+            InlineKeyboardButton.WithCallbackData("⚠️ Warn", $"admin_warn_{userId}"),
+            InlineKeyboardButton.WithCallbackData("🔇 Mute", $"admin_mute_{userId}")
+        },
+        new[] 
+        { 
+            InlineKeyboardButton.WithCallbackData("🚫 Ban", $"admin_ban_{userId}"),
+            InlineKeyboardButton.WithCallbackData("❌ Cancel", "admin_cancel")
+        }
+    });
+    
+    await Bot.SendTextMessageAsync(
+        ChatId,
+        $"Actions for user {userId}:",
+        replyMarkup: keyboard
+    );
+}
+
+[CallbackData("admin_warn_123456")]
+public async Task HandleWarnUser()
+{
+    await Bot.AnswerCallbackQueryAsync(
+        Update.CallbackQuery.Id,
+        "User warned"
+    );
+    await WarnUser(123456);
+}
+
+[CallbackData("admin_cancel")]
+public async Task HandleAdminCancel()
+{
+    await Bot.AnswerCallbackQueryAsync(
+        Update.CallbackQuery.Id,
+        "Cancelled"
+    );
+    
+    await Bot.DeleteMessageAsync(
+        Update.CallbackQuery.Message.Chat.Id,
+        Update.CallbackQuery.Message.MessageId
+    );
+}
+```
+
+## Best Practices
+
+1. **Always answer callback queries**: Every callback query should be answered to remove the loading state:
+
+```csharp
+[CallbackData("action")]
+public async Task HandleAction()
+{
+    // Always answer, even if you don't show a notification
+    await Bot.AnswerCallbackQueryAsync(Update.CallbackQuery.Id);
+    
+    // Then perform your action
+    await PerformAction();
+}
+```
+
+2. **Use descriptive callback data**: Make your callback data self-documenting:
+
+```csharp
+// Good
+InlineKeyboardButton.WithCallbackData("Delete", "admin_delete_user_123")
+
+// Less clear
+InlineKeyboardButton.WithCallbackData("Delete", "d123")
+```
+
+3. **Handle callback data patterns**: For dynamic content, use prefixes:
+
+```csharp
+// Create buttons
+InlineKeyboardButton.WithCallbackData("Item 1", "item_1")
+InlineKeyboardButton.WithCallbackData("Item 2", "item_2")
+
+// Then parse programmatically
+public async Task HandleCallback(string data)
+{
+    if (data.StartsWith("item_"))
+    {
+        var itemId = int.Parse(data.Substring(5));
+        await HandleItem(itemId);
+    }
+}
+```
+
+4. **Update messages instead of sending new ones**: Use `EditMessageTextAsync` to update existing messages:
+
+```csharp
+await Bot.EditMessageTextAsync(
+    Update.CallbackQuery.Message.Chat.Id,
+    Update.CallbackQuery.Message.MessageId,
+    "Updated content"
+);
+```
+
+5. **Handle callback query timeouts**: Callback queries can expire. Handle them gracefully:
+
+```csharp
+try
+{
+    await Bot.AnswerCallbackQueryAsync(Update.CallbackQuery.Id, "Processing...");
+}
+catch (Exception ex)
+{
+    // Callback query might have expired
+    Logger.LogWarning("Failed to answer callback query: {0}", ex.Message);
+}
+```
+
+6. **Limit callback data size**: Callback data is limited to 64 bytes. For complex data, store it server-side and use IDs:
+
+```csharp
+// Instead of:
+InlineKeyboardButton.WithCallbackData("Item", "very_long_data_string_that_exceeds_limits")
+
+// Use:
+var dataId = StoreData(complexData);  // Returns "12345"
+InlineKeyboardButton.WithCallbackData("Item", $"data_{dataId}")
+```
+
+7. **Provide user feedback**: Always give users feedback when they press buttons:
+
+```csharp
+await Bot.AnswerCallbackQueryAsync(
+    Update.CallbackQuery.Id,
+    text: "Action completed!",
+    showAlert: true  // Shows a popup instead of a notification
+);
+```
+
+## Common Patterns
+
+### Back Button
+
+```csharp
+[CallbackData("back_main")]
+public async Task BackToMain()
+{
+    await Bot.AnswerCallbackQueryAsync(Update.CallbackQuery.Id);
+    await ShowMainMenu();
+}
+```
+
+### Refresh Button
+
+```csharp
+[CallbackData("refresh")]
+public async Task RefreshData()
+{
+    await Bot.AnswerCallbackQueryAsync(Update.CallbackQuery.Id, "Refreshing...");
+    var newData = await GetLatestData();
+    await UpdateMessage(newData);
+}
+```
+
+### Multi-Step Form
+
+```csharp
+[CallbackData("form_step1")]
+public async Task FormStep1() { /* ... */ }
+
+[CallbackData("form_step2")]
+public async Task FormStep2() { /* ... */ }
+
+[CallbackData("form_complete")]
+public async Task FormComplete() { /* ... */ }
+```

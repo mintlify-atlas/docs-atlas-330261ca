@@ -1,0 +1,289 @@
+---
+title: TelegratorClient
+description: Main client class for the Telegrator library
+---
+
+## Overview
+
+The `TelegratorClient` class is the main entry point for building Telegram bots with Telegrator. It extends the standard `TelegramBotClient` from Telegram.Bot with reactive capabilities for handling updates through a mediator pattern.
+
+```csharp
+public class TelegratorClient : TelegramBotClient, ITelegratorBot, ICollectingProvider
+```
+
+**Namespace:** `Telegrator`
+
+**Inheritance:** `TelegramBotClient` → `TelegratorClient`
+
+**Implements:** `ITelegratorBot`, `ICollectingProvider`
+
+## Constructors
+
+### TelegratorClient(string, HttpClient?, CancellationToken)
+
+Initializes a new instance with a bot token.
+
+```csharp
+public TelegratorClient(
+    string token,
+    HttpClient? httpClient = null,
+    CancellationToken cancellationToken = default
+)
+```
+
+<ParamField path="token" type="string" required>
+  The bot token from BotFather.
+</ParamField>
+
+<ParamField path="httpClient" type="HttpClient?">
+  Optional HTTP client for making requests.
+</ParamField>
+
+<ParamField path="cancellationToken" type="CancellationToken">
+  The cancellation token.
+</ParamField>
+
+#### Example
+
+```csharp
+var bot = new TelegratorClient("YOUR_BOT_TOKEN");
+```
+
+### TelegratorClient(TelegramBotClientOptions, HttpClient?, CancellationToken)
+
+Initializes a new instance with bot client options.
+
+```csharp
+public TelegratorClient(
+    TelegramBotClientOptions options,
+    HttpClient? httpClient = null,
+    CancellationToken cancellationToken = default
+)
+```
+
+<ParamField path="options" type="TelegramBotClientOptions" required>
+  The Telegram bot client options.
+</ParamField>
+
+<ParamField path="httpClient" type="HttpClient?">
+  Optional HTTP client for making requests.
+</ParamField>
+
+<ParamField path="cancellationToken" type="CancellationToken">
+  The cancellation token.
+</ParamField>
+
+### TelegratorClient(TelegramBotClientOptions, TelegratorOptions?, HttpClient?, CancellationToken)
+
+Initializes a new instance with both bot client options and Telegrator options.
+
+```csharp
+public TelegratorClient(
+    TelegramBotClientOptions options,
+    TelegratorOptions? telegratorOptions,
+    HttpClient? httpClient = null,
+    CancellationToken cancellationToken = default
+)
+```
+
+<ParamField path="options" type="TelegramBotClientOptions" required>
+  The Telegram bot client options.
+</ParamField>
+
+<ParamField path="telegratorOptions" type="TelegratorOptions?">
+  The Telegrator options for configuring bot behavior.
+</ParamField>
+
+<ParamField path="httpClient" type="HttpClient?">
+  Optional HTTP client for making requests.
+</ParamField>
+
+<ParamField path="cancellationToken" type="CancellationToken">
+  The cancellation token.
+</ParamField>
+
+#### Example
+
+```csharp
+var options = new TelegramBotClientOptions("YOUR_BOT_TOKEN");
+var telegratorOptions = new TelegratorOptions
+{
+    MaximumParallelWorkingHandlers = 10,
+    ExclusiveAwaitingHandlerRouting = true
+};
+var bot = new TelegratorClient(options, telegratorOptions);
+```
+
+## Properties
+
+<ResponseField name="Options" type="TelegratorOptions">
+  Gets the Telegrator configuration options for the bot.
+</ResponseField>
+
+<ResponseField name="Handlers" type="IHandlersCollection">
+  Gets the collection of registered update handlers.
+</ResponseField>
+
+<ResponseField name="BotInfo" type="ITelegramBotInfo">
+  Gets the bot information including user details.
+</ResponseField>
+
+<ResponseField name="UpdateRouter" type="IUpdateRouter">
+  Gets the update router for handling incoming updates.
+</ResponseField>
+
+## Methods
+
+### StartReceiving
+
+Starts receiving updates from Telegram. Initializes the update router and begins polling for updates.
+
+```csharp
+public void StartReceiving(
+    ReceiverOptions? receiverOptions = null,
+    CancellationToken cancellationToken = default
+)
+```
+
+<ParamField path="receiverOptions" type="ReceiverOptions?">
+  Optional receiver options for configuring update polling.
+</ParamField>
+
+<ParamField path="cancellationToken" type="CancellationToken">
+  The cancellation token to stop receiving updates.
+</ParamField>
+
+#### Example
+
+```csharp
+using Telegram.Bot.Polling;
+using Telegram.Bot.Types.Enums;
+using Telegrator;
+
+var bot = new TelegratorClient("YOUR_BOT_TOKEN");
+bot.Handlers.AddHandler<MyHandler>();
+
+var receiverOptions = new ReceiverOptions
+{
+    AllowedUpdates = new[] { UpdateType.Message, UpdateType.CallbackQuery }
+};
+
+bot.StartReceiving(receiverOptions);
+Console.WriteLine("Bot is running. Press Enter to stop.");
+Console.ReadLine();
+```
+
+## Complete Example
+
+Here's a complete example showing how to create and start a Telegrator bot:
+
+```csharp
+using Telegrator;
+using Telegrator.Handlers;
+using Telegrator.Annotations;
+using Telegram.Bot.Types;
+using Telegram.Bot.Types.Enums;
+
+// Define a simple handler
+[MessageHandler]
+[ChatType(ChatType.Private)]
+[TextContains("hello", StringComparison.InvariantCultureIgnoreCase)]
+public class HelloHandler : MessageHandler
+{
+    public override async Task Execute(
+        IAbstractHandlerContainer<Message> container,
+        CancellationToken cancellation)
+    {
+        await Reply("Hello! Nice to meet you!", cancellationToken: cancellation);
+    }
+}
+
+// Initialize and start the bot
+class Program
+{
+    static void Main(string[] args)
+    {
+        // Create the bot client
+        var bot = new TelegratorClient("YOUR_BOT_TOKEN");
+        
+        // Register handlers
+        bot.Handlers.AddHandler<HelloHandler>();
+        
+        // Or automatically discover all handlers
+        // bot.Handlers.CollectHandlersDomainWide();
+        
+        // Start receiving updates
+        bot.StartReceiving();
+        
+        Console.WriteLine($"Bot started: @{bot.BotInfo.User.Username}");
+        Console.WriteLine("Press Enter to stop.");
+        Console.ReadLine();
+    }
+}
+```
+
+## Advanced Configuration
+
+```csharp
+using Telegrator;
+using Telegram.Bot.Polling;
+using Telegram.Bot.Types.Enums;
+
+// Configure Telegrator options
+var telegratorOptions = new TelegratorOptions
+{
+    MaximumParallelWorkingHandlers = 5,
+    ExclusiveAwaitingHandlerRouting = true,
+    ExceptIntersectingCommandAliases = true
+};
+
+// Configure bot client options
+var botOptions = new TelegramBotClientOptions("YOUR_BOT_TOKEN");
+
+// Create client with custom options
+var bot = new TelegratorClient(botOptions, telegratorOptions);
+
+// Configure receiver
+var receiverOptions = new ReceiverOptions
+{
+    AllowedUpdates = new[]
+    {
+        UpdateType.Message,
+        UpdateType.CallbackQuery,
+        UpdateType.InlineQuery
+    },
+    Limit = 100,
+    Timeout = 60
+};
+
+// Register handlers
+bot.Handlers.CollectHandlersDomainWide();
+
+// Set up cancellation
+var cts = new CancellationTokenSource();
+Console.CancelKeyPress += (s, e) =>
+{
+    e.Cancel = true;
+    cts.Cancel();
+};
+
+// Start the bot
+bot.StartReceiving(receiverOptions, cts.Token);
+
+Console.WriteLine("Bot is running. Press Ctrl+C to stop.");
+try
+{
+    await Task.Delay(-1, cts.Token);
+}
+catch (TaskCanceledException)
+{
+    Console.WriteLine("Bot stopped.");
+}
+```
+
+## See Also
+
+- [TelegratorOptions](/api/client/telegrator-options) - Configuration options for bot behavior
+- [ITelegramBotInfo](/api/client/bot-info) - Bot information interface
+- [Message Handlers](/api/handlers/message-handler) - Creating message handlers
+- [Command Handlers](/api/handlers/command-handler) - Creating command handlers

@@ -1,0 +1,260 @@
+---
+title: TelegratorOptions
+description: Configuration options for Telegrator bot behavior and execution settings
+---
+
+## Overview
+
+The `TelegratorOptions` class provides configuration options for controlling various aspects of Telegrator bot operation, including concurrency limits, routing behavior, and execution policies.
+
+```csharp
+public class TelegratorOptions : ITelegratorOptions
+```
+
+**Namespace:** `Telegrator`
+
+**Implements:** `ITelegratorOptions`
+
+## Properties
+
+<ResponseField name="MaximumParallelWorkingHandlers" type="int?" default="null">
+  Gets or sets the maximum number of parallel working handlers. When `null`, there is no limit on concurrent handler execution.
+  
+  **Use case:** Limit concurrency to prevent resource exhaustion when handling many simultaneous updates.
+</ResponseField>
+
+<ResponseField name="ExclusiveAwaitingHandlerRouting" type="bool" default="false">
+  Gets or sets a value indicating whether awaiting handlers should be routed separately from regular handlers.
+  
+  When `true`, handlers that are awaiting user input are processed exclusively, preventing other handlers from interfering with the awaiting flow.
+  
+  **Use case:** Ensure that multi-step conversations are not interrupted by other handlers.
+</ResponseField>
+
+<ResponseField name="ExceptIntersectingCommandAliases" type="bool" default="true">
+  Gets or sets a value indicating whether to exclude intersecting command aliases.
+  
+  When `true`, the framework will detect and reject command handlers with overlapping aliases during registration.
+  
+  **Use case:** Prevent conflicts between similar command names like `/start` and `/started`.
+</ResponseField>
+
+<ResponseField name="GlobalCancellationToken" type="CancellationToken" default="CancellationToken.None">
+  Gets or sets the global cancellation token for all bot operations.
+  
+  This token is used to gracefully shut down the bot and cancel all ongoing operations.
+</ResponseField>
+
+## Examples
+
+### Basic Configuration
+
+```csharp
+using Telegrator;
+
+var options = new TelegratorOptions
+{
+    MaximumParallelWorkingHandlers = 10,
+    ExceptIntersectingCommandAliases = true
+};
+
+var bot = new TelegratorClient("YOUR_BOT_TOKEN", options);
+bot.StartReceiving();
+```
+
+### Limiting Concurrency
+
+Limit the number of handlers that can execute simultaneously to prevent resource exhaustion:
+
+```csharp
+var options = new TelegratorOptions
+{
+    // Only allow 5 handlers to run concurrently
+    MaximumParallelWorkingHandlers = 5
+};
+
+var bot = new TelegratorClient("YOUR_BOT_TOKEN", options);
+bot.Handlers.CollectHandlersDomainWide();
+bot.StartReceiving();
+```
+
+### Exclusive Awaiting Handler Routing
+
+Ensure that multi-step conversations are not interrupted by other handlers:
+
+```csharp
+var options = new TelegratorOptions
+{
+    // Prevent other handlers from executing while awaiting user input
+    ExclusiveAwaitingHandlerRouting = true
+};
+
+var bot = new TelegratorClient("YOUR_BOT_TOKEN", options);
+bot.Handlers.AddHandler<WizardStartHandler>();
+bot.Handlers.AddHandler<WizardStep1Handler>();
+bot.StartReceiving();
+```
+
+### Global Cancellation Token
+
+Implement graceful shutdown with a cancellation token:
+
+```csharp
+using Telegrator;
+
+var cts = new CancellationTokenSource();
+
+var options = new TelegratorOptions
+{
+    GlobalCancellationToken = cts.Token
+};
+
+var bot = new TelegratorClient("YOUR_BOT_TOKEN", options);
+bot.Handlers.CollectHandlersDomainWide();
+
+// Set up graceful shutdown
+Console.CancelKeyPress += (s, e) =>
+{
+    e.Cancel = true;
+    cts.Cancel();
+    Console.WriteLine("Shutting down bot...");
+};
+
+bot.StartReceiving(cancellationToken: cts.Token);
+
+Console.WriteLine("Bot is running. Press Ctrl+C to stop.");
+try
+{
+    await Task.Delay(-1, cts.Token);
+}
+catch (TaskCanceledException)
+{
+    Console.WriteLine("Bot stopped successfully.");
+}
+```
+
+### Complete Configuration Example
+
+```csharp
+using Telegrator;
+using Telegram.Bot.Polling;
+
+var cts = new CancellationTokenSource();
+
+// Configure all options
+var options = new TelegratorOptions
+{
+    MaximumParallelWorkingHandlers = 10,
+    ExclusiveAwaitingHandlerRouting = true,
+    ExceptIntersectingCommandAliases = true,
+    GlobalCancellationToken = cts.Token
+};
+
+// Create bot with options
+var botClientOptions = new TelegramBotClientOptions("YOUR_BOT_TOKEN");
+var bot = new TelegratorClient(botClientOptions, options);
+
+// Register handlers
+bot.Handlers.CollectHandlersDomainWide();
+
+// Configure receiver options
+var receiverOptions = new ReceiverOptions
+{
+    AllowedUpdates = Array.Empty<UpdateType>() // receive all update types
+};
+
+// Set up graceful shutdown
+Console.CancelKeyPress += (s, e) =>
+{
+    e.Cancel = true;
+    cts.Cancel();
+};
+
+// Start the bot
+bot.StartReceiving(receiverOptions, cts.Token);
+
+Console.WriteLine("Bot is running. Press Ctrl+C to stop.");
+try
+{
+    await Task.Delay(-1, cts.Token);
+}
+catch (TaskCanceledException)
+{
+    Console.WriteLine("Bot stopped.");
+}
+```
+
+## Configuration Scenarios
+
+### High-Traffic Bot
+
+For bots that handle many concurrent users:
+
+```csharp
+var options = new TelegratorOptions
+{
+    MaximumParallelWorkingHandlers = 50, // Allow many concurrent handlers
+    ExclusiveAwaitingHandlerRouting = false // Allow handlers to run alongside awaiting handlers
+};
+```
+
+### Resource-Constrained Environment
+
+For bots running on limited resources:
+
+```csharp
+var options = new TelegratorOptions
+{
+    MaximumParallelWorkingHandlers = 3, // Strict concurrency limit
+    ExclusiveAwaitingHandlerRouting = true // Reduce complexity
+};
+```
+
+### Wizard/Conversation-Heavy Bot
+
+For bots with many multi-step conversations:
+
+```csharp
+var options = new TelegratorOptions
+{
+    ExclusiveAwaitingHandlerRouting = true, // Prevent interference
+    MaximumParallelWorkingHandlers = 20 // Allow reasonable concurrency
+};
+```
+
+## Best Practices
+
+<AccordionGroup>
+  <Accordion title="Concurrency Limits">
+    - Set `MaximumParallelWorkingHandlers` based on your server's resources
+    - Monitor CPU and memory usage to find optimal values
+    - Start conservative (e.g., 5-10) and increase based on testing
+    - Use `null` (unlimited) only if you're confident about resource availability
+  </Accordion>
+
+  <Accordion title="Awaiting Handler Routing">
+    - Enable `ExclusiveAwaitingHandlerRouting` for conversation-heavy bots
+    - Disable it if you need handlers to run alongside awaiting flows
+    - Test thoroughly with concurrent users to ensure expected behavior
+  </Accordion>
+
+  <Accordion title="Command Aliases">
+    - Keep `ExceptIntersectingCommandAliases` enabled (default) to prevent conflicts
+    - Only disable if you have a specific need for overlapping command names
+    - Use unique, non-overlapping command names to avoid issues
+  </Accordion>
+
+  <Accordion title="Cancellation Tokens">
+    - Always provide a `GlobalCancellationToken` for production bots
+    - Implement graceful shutdown handlers (Ctrl+C, SIGTERM)
+    - Use the same token for both options and `StartReceiving()`
+    - Clean up resources in cancellation handlers
+  </Accordion>
+</AccordionGroup>
+
+## See Also
+
+- [TelegratorClient](/api/client/telegrator-client) - Main client class
+- [ITelegramBotInfo](/api/client/bot-info) - Bot information interface
+- [Concurrency & Awaiting](/guides/concurrency) - Guide on managing concurrent handlers
+- [State Management](/guides/state-management) - Guide on state keeping

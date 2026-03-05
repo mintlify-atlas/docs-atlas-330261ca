@@ -1,0 +1,263 @@
+---
+title: 'NumericState'
+description: 'Manage integer-based states for conversation flows'
+---
+
+## Overview
+
+The `NumericState` attribute and keeper provide integer-based state management for chat sessions. States automatically increment and decrement, making them ideal for linear conversation flows like multi-step forms or sequential processes.
+
+## NumericStateAttribute
+
+Apply this attribute to handlers to filter by numeric state values.
+
+### Constructors
+
+<ParamField path="NumericStateAttribute(int myState)" type="constructor">
+  Associates the handler with a specific integer state using the default sender ID resolver.
+  
+  **Parameters:**
+  - `myState` (int): The specific state value to match
+</ParamField>
+
+<ParamField path="NumericStateAttribute(SpecialState specialState)" type="constructor">
+  Associates the handler with a special state mode using the default sender ID resolver.
+  
+  **Parameters:**
+  - `specialState` (SpecialState): Special state mode (`NoState`, `AnyState`)
+</ParamField>
+
+<ParamField path="NumericStateAttribute(int myState, IStateKeyResolver<long> keyResolver)" type="constructor">
+  Associates the handler with a specific state using a custom key resolver.
+  
+  **Parameters:**
+  - `myState` (int): The specific state value to match
+  - `keyResolver` (IStateKeyResolver\<long\>): Custom key resolver for state management
+</ParamField>
+
+<ParamField path="NumericStateAttribute(SpecialState specialState, IStateKeyResolver<long> keyResolver)" type="constructor">
+  Associates the handler with a special state mode using a custom key resolver.
+  
+  **Parameters:**
+  - `specialState` (SpecialState): Special state mode
+  - `keyResolver` (IStateKeyResolver\<long\>): Custom key resolver
+</ParamField>
+
+### Properties
+
+<ParamField path="DefaultState" type="int">
+  Gets the default state value, which is `1`.
+</ParamField>
+
+## NumericStateKeeper
+
+Manages numeric state storage and transitions.
+
+### Methods
+
+<ParamField path="SetState(Update keySource, int newState)" type="void">
+  Sets the numeric state for the specified update.
+  
+  **Parameters:**
+  - `keySource` (Update): The update to use as a key source
+  - `newState` (int): The new state value
+</ParamField>
+
+<ParamField path="GetState(Update keySource)" type="int">
+  Gets the current numeric state for the specified update.
+  
+  **Parameters:**
+  - `keySource` (Update): The update to use as a key source
+  
+  **Returns:** The current state value
+</ParamField>
+
+<ParamField path="TryGetState(Update keySource, out int? state)" type="bool">
+  Attempts to get the state for the specified update.
+  
+  **Parameters:**
+  - `keySource` (Update): The update to use as a key source
+  - `state` (out int?): The state value if found
+  
+  **Returns:** `true` if state exists; otherwise `false`
+</ParamField>
+
+<ParamField path="HasState(Update keySource)" type="bool">
+  Checks whether a state exists for the specified update.
+  
+  **Parameters:**
+  - `keySource` (Update): The update to use as a key source
+  
+  **Returns:** `true` if state exists; otherwise `false`
+</ParamField>
+
+<ParamField path="CreateState(Update keySource)" type="void">
+  Creates a new state for the specified update using the default value (1).
+  
+  **Parameters:**
+  - `keySource` (Update): The update to use as a key source
+</ParamField>
+
+<ParamField path="DeleteState(Update keySource)" type="void">
+  Deletes the state for the specified update.
+  
+  **Parameters:**
+  - `keySource` (Update): The update to use as a key source
+</ParamField>
+
+<ParamField path="MoveForward(Update keySource)" type="void">
+  Increments the numeric state by 1.
+  
+  **Parameters:**
+  - `keySource` (Update): The update to use as a key source
+</ParamField>
+
+<ParamField path="MoveBackward(Update keySource)" type="void">
+  Decrements the numeric state by 1.
+  
+  **Parameters:**
+  - `keySource` (Update): The update to use as a key source
+</ParamField>
+
+## Extension Methods
+
+Convenience methods available on `IHandlerContainer`:
+
+```csharp
+// Get the state keeper instance
+var keeper = container.NumericStateKeeper();
+
+// Create a new state (starts at 1)
+container.CreateNumericState();
+
+// Set to a specific value
+container.SetNumericState(3);
+
+// Move forward (increment)
+container.ForwardNumericState();
+
+// Move backward (decrement)
+container.BackwardNumericState();
+
+// Delete the state
+container.DeleteNumericState();
+```
+
+## Usage Example
+
+```csharp
+using Telegrator.Annotations;
+using Telegrator.Annotations.StateKeeping;
+using Telegrator.Handlers.Components;
+using Telegram.Bot;
+using Telegram.Bot.Types;
+
+// Handler for state 1 - Initial step
+[NumericState(1)]
+[Command("register")]
+public class RegistrationStartHandler : IHandler
+{
+    public async Task<Result> Handle(IHandlerContainer container, CancellationToken cancellationToken)
+    {
+        var bot = container.Client;
+        var chatId = container.HandlingUpdate.Message!.Chat.Id;
+        
+        await bot.SendTextMessageAsync(
+            chatId,
+            "Welcome! Please enter your full name:",
+            cancellationToken: cancellationToken
+        );
+        
+        // Move to next state
+        container.ForwardNumericState();
+        
+        return Result.Success;
+    }
+}
+
+// Handler for state 2 - Collect name
+[NumericState(2)]
+[Message]
+public class CollectNameHandler : IHandler
+{
+    public async Task<Result> Handle(IHandlerContainer container, CancellationToken cancellationToken)
+    {
+        var bot = container.Client;
+        var message = container.HandlingUpdate.Message!;
+        var name = message.Text;
+        
+        // Store name (you would use your own storage)
+        // ...
+        
+        await bot.SendTextMessageAsync(
+            message.Chat.Id,
+            $"Thanks {name}! Now please enter your email:",
+            cancellationToken: cancellationToken
+        );
+        
+        // Move to next state
+        container.ForwardNumericState();
+        
+        return Result.Success;
+    }
+}
+
+// Handler for state 3 - Collect email
+[NumericState(3)]
+[Message]
+public class CollectEmailHandler : IHandler
+{
+    public async Task<Result> Handle(IHandlerContainer container, CancellationToken cancellationToken)
+    {
+        var bot = container.Client;
+        var message = container.HandlingUpdate.Message!;
+        var email = message.Text;
+        
+        await bot.SendTextMessageAsync(
+            message.Chat.Id,
+            "Registration complete! Thank you.",
+            cancellationToken: cancellationToken
+        );
+        
+        // End the flow - delete the state
+        container.DeleteNumericState();
+        
+        return Result.Success;
+    }
+}
+
+// Cancel command works at any state
+[NumericState(SpecialState.AnyState)]
+[Command("cancel")]
+public class CancelHandler : IHandler
+{
+    public async Task<Result> Handle(IHandlerContainer container, CancellationToken cancellationToken)
+    {
+        var bot = container.Client;
+        var chatId = container.HandlingUpdate.Message!.Chat.Id;
+        
+        await bot.SendTextMessageAsync(
+            chatId,
+            "Registration cancelled.",
+            cancellationToken: cancellationToken
+        );
+        
+        container.DeleteNumericState();
+        
+        return Result.Success;
+    }
+}
+```
+
+## Key Features
+
+- **Automatic Transitions**: States increment/decrement automatically
+- **Default State**: Starts at 1 by default
+- **Linear Flows**: Perfect for sequential processes
+- **Simple State Management**: Easy to track progress through numbered steps
+
+## See Also
+
+- [StringState](/api/state/string-state) - For named state management
+- [EnumState](/api/state/enum-state) - For type-safe state management
+- [State Keepers](/api/state/state-keepers) - Base state keeper architecture

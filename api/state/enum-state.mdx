@@ -1,0 +1,439 @@
+---
+title: 'EnumState'
+description: 'Manage type-safe enum-based states with automatic navigation'
+---
+
+## Overview
+
+The `EnumState` attribute and keeper provide type-safe, enum-based state management for chat sessions. This approach combines the readability of named states with compile-time type safety and automatic sequential navigation through enum values.
+
+## EnumStateAttribute\<TEnum\>
+
+Apply this generic attribute to handlers to filter by enum state values.
+
+### Constructors
+
+<ParamField path="EnumStateAttribute(TEnum myState)" type="constructor">
+  Associates the handler with a specific enum state using the default sender ID resolver.
+  
+  **Parameters:**
+  - `myState` (TEnum): The specific enum value to match
+</ParamField>
+
+<ParamField path="EnumStateAttribute(SpecialState specialState)" type="constructor">
+  Associates the handler with a special state mode using the default sender ID resolver.
+  
+  **Parameters:**
+  - `specialState` (SpecialState): Special state mode (`NoState`, `AnyState`)
+</ParamField>
+
+<ParamField path="EnumStateAttribute(TEnum myState, IStateKeyResolver<long> keyResolver)" type="constructor">
+  Associates the handler with a specific state using a custom key resolver.
+  
+  **Parameters:**
+  - `myState` (TEnum): The specific enum value to match
+  - `keyResolver` (IStateKeyResolver\<long\>): Custom key resolver for state management
+</ParamField>
+
+<ParamField path="EnumStateAttribute(SpecialState specialState, IStateKeyResolver<long> keyResolver)" type="constructor">
+  Associates the handler with a special state mode using a custom key resolver.
+  
+  **Parameters:**
+  - `specialState` (SpecialState): Special state mode
+  - `keyResolver` (IStateKeyResolver\<long\>): Custom key resolver
+</ParamField>
+
+### Properties
+
+<ParamField path="DefaultState" type="TEnum">
+  Gets the default state value, which is the first value in the enum.
+</ParamField>
+
+## EnumStateKeeper\<TEnum\>
+
+Manages enum state storage and transitions. Automatically navigates through enum values in declaration order.
+
+### Methods
+
+<ParamField path="SetState(Update keySource, TEnum newState)" type="void">
+  Sets the enum state for the specified update.
+  
+  **Parameters:**
+  - `keySource` (Update): The update to use as a key source
+  - `newState` (TEnum): The new enum state value
+</ParamField>
+
+<ParamField path="GetState(Update keySource)" type="TEnum">
+  Gets the current enum state for the specified update.
+  
+  **Parameters:**
+  - `keySource` (Update): The update to use as a key source
+  
+  **Returns:** The current enum state value
+</ParamField>
+
+<ParamField path="TryGetState(Update keySource, out TEnum? state)" type="bool">
+  Attempts to get the state for the specified update.
+  
+  **Parameters:**
+  - `keySource` (Update): The update to use as a key source
+  - `state` (out TEnum?): The enum state value if found
+  
+  **Returns:** `true` if state exists; otherwise `false`
+</ParamField>
+
+<ParamField path="HasState(Update keySource)" type="bool">
+  Checks whether a state exists for the specified update.
+  
+  **Parameters:**
+  - `keySource` (Update): The update to use as a key source
+  
+  **Returns:** `true` if state exists; otherwise `false`
+</ParamField>
+
+<ParamField path="CreateState(Update keySource)" type="void">
+  Creates a new state for the specified update using the default value (first enum value).
+  
+  **Parameters:**
+  - `keySource` (Update): The update to use as a key source
+</ParamField>
+
+<ParamField path="DeleteState(Update keySource)" type="void">
+  Deletes the state for the specified update.
+  
+  **Parameters:**
+  - `keySource` (Update): The update to use as a key source
+</ParamField>
+
+<ParamField path="MoveForward(Update keySource)" type="void">
+  Moves to the next enum value in the sequence. Throws `IndexOutOfRangeException` if already at the last value.
+  
+  **Parameters:**
+  - `keySource` (Update): The update to use as a key source
+</ParamField>
+
+<ParamField path="MoveBackward(Update keySource)" type="void">
+  Moves to the previous enum value in the sequence. Throws `IndexOutOfRangeException` if already at the first value.
+  
+  **Parameters:**
+  - `keySource` (Update): The update to use as a key source
+</ParamField>
+
+## Extension Methods
+
+Convenience methods available on `IHandlerContainer`:
+
+```csharp
+// Get the state keeper instance
+var keeper = container.EnumStateKeeper<RegistrationState>();
+
+// Create a new state (starts at first enum value)
+container.CreateEnumState<RegistrationState>();
+
+// Set to a specific enum value
+container.SetEnumState(RegistrationState.CollectingEmail);
+
+// Move forward to next enum value
+container.ForwardEnumState<RegistrationState>();
+
+// Move backward to previous enum value
+container.BackwardEnumState<RegistrationState>();
+
+// Delete the state
+container.DeleteEnumState<RegistrationState>();
+```
+
+## Usage Example
+
+```csharp
+using Telegrator.Annotations;
+using Telegrator.Annotations.StateKeeping;
+using Telegrator.Handlers.Components;
+using Telegram.Bot;
+using Telegram.Bot.Types;
+
+// Define your state enum
+public enum RegistrationState
+{
+    Start,
+    CollectingName,
+    CollectingEmail,
+    CollectingPhone,
+    Complete
+}
+
+// Handler for initial state
+[EnumState<RegistrationState>(RegistrationState.Start)]
+[Command("register")]
+public class RegistrationStartHandler : IHandler
+{
+    public async Task<Result> Handle(IHandlerContainer container, CancellationToken cancellationToken)
+    {
+        var bot = container.Client;
+        var chatId = container.HandlingUpdate.Message!.Chat.Id;
+        
+        await bot.SendTextMessageAsync(
+            chatId,
+            "Welcome to registration! Please enter your full name:",
+            cancellationToken: cancellationToken
+        );
+        
+        // Move to next state in enum
+        container.ForwardEnumState<RegistrationState>();
+        
+        return Result.Success;
+    }
+}
+
+// Handler for collecting name
+[EnumState<RegistrationState>(RegistrationState.CollectingName)]
+[Message]
+public class CollectNameHandler : IHandler
+{
+    public async Task<Result> Handle(IHandlerContainer container, CancellationToken cancellationToken)
+    {
+        var bot = container.Client;
+        var message = container.HandlingUpdate.Message!;
+        var name = message.Text;
+        
+        // Validate name
+        if (string.IsNullOrWhiteSpace(name))
+        {
+            await bot.SendTextMessageAsync(
+                message.Chat.Id,
+                "Please enter a valid name:",
+                cancellationToken: cancellationToken
+            );
+            return Result.Success; // Stay in same state
+        }
+        
+        // Store name (you would use your own storage)
+        // ...
+        
+        await bot.SendTextMessageAsync(
+            message.Chat.Id,
+            $"Thanks {name}! Now please enter your email:",
+            cancellationToken: cancellationToken
+        );
+        
+        // Move to next state
+        container.ForwardEnumState<RegistrationState>();
+        
+        return Result.Success;
+    }
+}
+
+// Handler for collecting email
+[EnumState<RegistrationState>(RegistrationState.CollectingEmail)]
+[Message]
+public class CollectEmailHandler : IHandler
+{
+    public async Task<Result> Handle(IHandlerContainer container, CancellationToken cancellationToken)
+    {
+        var bot = container.Client;
+        var message = container.HandlingUpdate.Message!;
+        var email = message.Text;
+        
+        // Validate email
+        if (!IsValidEmail(email))
+        {
+            await bot.SendTextMessageAsync(
+                message.Chat.Id,
+                "Please enter a valid email address:",
+                cancellationToken: cancellationToken
+            );
+            return Result.Success; // Stay in same state
+        }
+        
+        await bot.SendTextMessageAsync(
+            message.Chat.Id,
+            "Great! Now please enter your phone number:",
+            cancellationToken: cancellationToken
+        );
+        
+        container.ForwardEnumState<RegistrationState>();
+        
+        return Result.Success;
+    }
+    
+    private bool IsValidEmail(string? email)
+    {
+        // Your email validation logic
+        return !string.IsNullOrWhiteSpace(email) && email.Contains('@');
+    }
+}
+
+// Handler for collecting phone
+[EnumState<RegistrationState>(RegistrationState.CollectingPhone)]
+[Message]
+public class CollectPhoneHandler : IHandler
+{
+    public async Task<Result> Handle(IHandlerContainer container, CancellationToken cancellationToken)
+    {
+        var bot = container.Client;
+        var message = container.HandlingUpdate.Message!;
+        var phone = message.Text;
+        
+        await bot.SendTextMessageAsync(
+            message.Chat.Id,
+            "Registration complete! Thank you.",
+            cancellationToken: cancellationToken
+        );
+        
+        // End the flow - delete the state
+        container.DeleteEnumState<RegistrationState>();
+        
+        return Result.Success;
+    }
+}
+
+// Back command to go to previous step
+[EnumState<RegistrationState>(SpecialState.AnyState)]
+[Command("back")]
+public class BackHandler : IHandler
+{
+    public async Task<Result> Handle(IHandlerContainer container, CancellationToken cancellationToken)
+    {
+        var bot = container.Client;
+        var chatId = container.HandlingUpdate.Message!.Chat.Id;
+        
+        try
+        {
+            container.BackwardEnumState<RegistrationState>();
+            
+            await bot.SendTextMessageAsync(
+                chatId,
+                "Going back to previous step...",
+                cancellationToken: cancellationToken
+            );
+        }
+        catch (IndexOutOfRangeException)
+        {
+            await bot.SendTextMessageAsync(
+                chatId,
+                "You're already at the beginning!",
+                cancellationToken: cancellationToken
+            );
+        }
+        
+        return Result.Success;
+    }
+}
+
+// Cancel command works at any state
+[EnumState<RegistrationState>(SpecialState.AnyState)]
+[Command("cancel")]
+public class CancelHandler : IHandler
+{
+    public async Task<Result> Handle(IHandlerContainer container, CancellationToken cancellationToken)
+    {
+        var bot = container.Client;
+        var chatId = container.HandlingUpdate.Message!.Chat.Id;
+        
+        await bot.SendTextMessageAsync(
+            chatId,
+            "Registration cancelled.",
+            cancellationToken: cancellationToken
+        );
+        
+        container.DeleteEnumState<RegistrationState>();
+        
+        return Result.Success;
+    }
+}
+```
+
+## Advanced Example: Multiple State Machines
+
+You can use different enum types for different conversation flows:
+
+```csharp
+public enum OrderState
+{
+    SelectingProduct,
+    EnteringQuantity,
+    ConfirmingOrder,
+    PaymentPending
+}
+
+public enum SupportState
+{
+    DescribingIssue,
+    ProvidingDetails,
+    AwaitingResponse,
+    Resolved
+}
+
+[EnumState<OrderState>(OrderState.SelectingProduct)]
+[Command("order")]
+public class StartOrderHandler : IHandler { /* ... */ }
+
+[EnumState<SupportState>(SupportState.DescribingIssue)]
+[Command("support")]
+public class StartSupportHandler : IHandler { /* ... */ }
+```
+
+## Key Features
+
+- **Type Safety**: Compile-time checking of state values
+- **IntelliSense Support**: IDE auto-completion for state names
+- **Automatic Navigation**: Sequential forward/backward through enum values
+- **Self-Documenting**: Enum values serve as clear state names
+- **Refactoring Friendly**: Rename enum values safely with IDE tools
+
+## Exception Handling
+
+The `MoveForward()` and `MoveBackward()` methods throw exceptions at boundaries:
+
+```csharp
+try
+{
+    container.ForwardEnumState<RegistrationState>();
+}
+catch (IndexOutOfRangeException)
+{
+    // Already at last state - can't move forward
+    await bot.SendTextMessageAsync(
+        chatId,
+        "You've completed all steps!"
+    );
+}
+
+try
+{
+    container.BackwardEnumState<RegistrationState>();
+}
+catch (IndexOutOfRangeException)
+{
+    // Already at first state - can't move backward
+    await bot.SendTextMessageAsync(
+        chatId,
+        "You're at the beginning!"
+    );
+}
+```
+
+## When to Use Enum States
+
+**Use Enum States when:**
+- You want type-safe state management
+- Your flow follows a sequential order
+- You need IntelliSense support for state names
+- You want automatic forward/backward navigation
+- You're building a multi-step process with clear stages
+
+**Use String States when:**
+- You need maximum flexibility in state transitions
+- Your flow is non-linear with complex branching
+- States don't follow a sequential order
+
+**Use Numeric States when:**
+- You have a simple linear flow
+- You don't need descriptive state names
+- You want the simplest implementation
+
+## See Also
+
+- [NumericState](/api/state/numeric-state) - For sequential numeric states
+- [StringState](/api/state/string-state) - For flexible named states
+- [State Keepers](/api/state/state-keepers) - Base state keeper architecture

@@ -1,0 +1,567 @@
+---
+title: "Performance Optimization"
+description: "Strategies for optimizing handler performance, concurrency tuning, and improving bot responsiveness"
+---
+
+## Overview
+
+Telegrator provides several mechanisms to optimize bot performance through handler priorities, concurrency control, and efficient routing strategies. This guide covers techniques to ensure your bot responds quickly and handles load effectively.
+
+## Concurrency Control
+
+### Maximum Parallel Handlers
+
+Control how many handlers execute simultaneously using `MaximumParallelWorkingHandlers` (from `/home/daytona/workspace/source/Telegrator/TelegratorOptions.cs:12`):
+
+```csharp
+var options = new TelegratorOptions
+{
+    // Limit to 10 concurrent handler executions
+    MaximumParallelWorkingHandlers = 10,
+    
+    // No limit (default) - handlers execute as fast as updates arrive
+    MaximumParallelWorkingHandlers = null
+};
+```
+
+### How It Works
+
+From `/home/daytona/workspace/source/Telegrator/Polling/UpdateHandlersPool.cs:55`, the pool uses a semaphore to control concurrency:
+
+```csharp
+public UpdateHandlersPool(TelegratorOptions options, CancellationToken globalCancellationToken)
+{
+    Options = options;
+    GlobalCancellationToken = globalCancellationToken;
+
+    if (options.MaximumParallelWorkingHandlers != null)
+    {
+        ExecutingHandlersSemaphore = new SemaphoreSlim(
+            options.MaximumParallelWorkingHandlers.Value);
+    }
+}
+```
+
+During handler execution (from line 74):
+
+```csharp
+if (ExecutingHandlersSemaphore != null)
+{
+    await ExecutingHandlersSemaphore.WaitAsync().ConfigureAwait(false);
+}
+
+try
+{
+    using (UpdateHandlerBase instance = handlerInfo.HandlerInstance)
+    {
+        Task<Result> task = instance.Execute(handlerInfo);
+        await task.ConfigureAwait(false);
+        ExecutingHandlersSemaphore?.Release(1);
+    }
+}
+```
+
+### Choosing the Right Concurrency Level
+
+```csharp
+// For I/O-bound bots (making API calls, database queries)
+var options = new TelegratorOptions
+{
+    // Higher concurrency is fine - threads will wait on I/O
+    MaximumParallelWorkingHandlers = 100
+};
+
+// For CPU-bound bots (heavy processing, image manipulation)
+var cpuBoundOptions = new TelegratorOptions
+{
+    // Limit to CPU cores to avoid context switching overhead
+    MaximumParallelWorkingHandlers = Environment.ProcessorCount * 2
+};
+
+// For resource-constrained environments
+var limitedOptions = new TelegratorOptions
+{
+    // Conservative limit to prevent memory exhaustion
+    MaximumParallelWorkingHandlers = 5
+};
+```
+
+## Handler Priorities
+
+### Understanding Priority System
+
+From `/home/daytona/workspace/source/Telegrator/MadiatorCore/Descriptors/DescriptorIndexer.cs:8`, handlers are ordered by:
+
+1. **Importance**: Coarse-grained priority
+2. **Priority**: Fine-grained priority within same importance
+3. **RouterIndex**: Order of registration (tie-breaker)
+
+```csharp
+public readonly struct DescriptorIndexer : IComparable<DescriptorIndexer>
+{
+    public readonly int RouterIndex;
+    public readonly int Importance;
+    public readonly int Priority;
+
+    public int CompareTo(DescriptorIndexer other)
+    {
+        int importanceCmp = Importance.CompareTo(other.Importance);
+        if (importanceCmp != 0)
+            return importanceCmp;
+
+        int priorityCmp = Priority.CompareTo(other.Priority);
+        if (priorityCmp != 0)
+            return priorityCmp;
+
+        return RouterIndex.CompareTo(other.RouterIndex);
+    }
+}
+```
+
+### Setting Handler Priorities
+
+```csharp
+// High importance, high priority (executes first)
+[MessageHandler(Importance = 100, Priority = 100)]
+public class CriticalCommandHandler : MessageHandler
+{
+    protected override async Task<Result> ExecuteInternal(
+        IHandlerContainer container,
+        CancellationToken cancellationToken)
+    {
+        // Handle critical commands like /stop or emergency actions
+        return Result.Ok();
+    }
+}
+
+// Normal importance and priority (default)
+[MessageHandler(Importance = 50, Priority = 50)]
+public class RegularMessageHandler : MessageHandler
+{
+    // Regular message processing
+}
+
+// Low importance, low priority (executes last)
+[MessageHandler(Importance = 0, Priority = 0)]
+public class FallbackHandler : MessageHandler
+{
+    // Catch-all handler for unmatched messages
+}
+```
+
+### Priority Strategy Examples
+
+```csharp
+// Command handlers should run before general message handlers
+[MessageHandler(Importance = 80, Priority = 80)]
+[MessageRegex(@"^\/\w+")]
+public class CommandHandler : MessageHandler { }
+
+[MessageHandler(Importance = 50, Priority = 50)]
+public class GeneralMessageHandler : MessageHandler { }
+
+// Admin commands get highest priority
+[MessageHandler(Importance = 100, Priority = 100)]
+[FromAdminUser]
+public class AdminCommandHandler : MessageHandler { }
+
+// Analytics/logging handlers run last, lowest priority
+[MessageHandler(Importance = 0, Priority = 0)]
+public class LoggingHandler : MessageHandler { }
+```
+
+## Routing Optimization
+
+### Exclusive Awaiting Handler Routing
+
+From `/home/daytona/workspace/source/Telegrator/TelegratorOptions.cs:15`:
+
+```csharp
+var options = new TelegratorOptions
+{
+    // When true, if awaiting handlers match, regular handlers are skipped
+    ExclusiveAwaitingHandlerRouting = true
+};
+```
+
+From `/home/daytona/workspace/source/Telegrator/Polling/UpdateRouter.cs:109`:
+
+```csharp
+IEnumerable<DescribedHandlerInfo> handlers = 
+    GetHandlers(AwaitingProvider, botClient, update, cancellationToken);
+    
+if (handlers.Any())
+{
+    await HandlersPool.Enqueue(handlers);
+
+    // Skip regular handlers if exclusive routing is enabled
+    if (Options.ExclusiveAwaitingHandlerRouting)
+    {
+        return;
+    }
+}
+
+// Process regular handlers
+await HandlersPool.Enqueue(
+    GetHandlers(HandlersProvider, botClient, update, cancellationToken));
+```
+
+**Performance Impact**: Reduces unnecessary handler matching when in awaiting state.
+
+```csharp
+// User is in a multi-step form - skip checking all regular handlers
+[MessageHandler]
+[FormState(FormStep.EnteringEmail)]
+public class EmailInputHandler : MessageHandler
+{
+    // Only this handler needs to execute
+}
+```
+
+### Filter Performance
+
+<Tip>
+  **Order filters by cost**: Place cheap filters (like type checks) before expensive ones (like regex or API calls).
+</Tip>
+
+```csharp
+// Good: cheap filter first
+[MessageHandler]
+[MessageTextNotEmpty]  // Fast: simple null/empty check
+[MessageRegex(@"^\d{10}$")]  // Slower: regex evaluation
+public class PhoneNumberHandler : MessageHandler { }
+
+// Bad: expensive filter first
+[MessageHandler]
+[MessageRegex(@".*")]  // Evaluates regex for all messages
+[MessageTextNotEmpty]  // Simple check comes too late
+public class InefficientHandler : MessageHandler { }
+```
+
+### Early Return from Routing
+
+Use `Result.Fault()` to stop routing when a handler should be the last to execute:
+
+```csharp
+[MessageHandler]
+public class AuthenticationHandler : MessageHandler
+{
+    protected override async Task<Result> ExecuteInternal(
+        IHandlerContainer container,
+        CancellationToken cancellationToken)
+    {
+        if (!IsAuthenticated(container))
+        {
+            await container.Client.SendTextMessageAsync(
+                container.GetChatId(),
+                "Please authenticate first: /login");
+                
+            // Stop processing other handlers
+            return Result.Fault();
+        }
+        
+        // Continue to next handler
+        return Result.Ok();
+    }
+}
+```
+
+## Handler Design Patterns
+
+### Lightweight Handlers
+
+```csharp
+// Bad: Heavy processing in handler
+[MessageHandler]
+public class HeavyHandler : MessageHandler
+{
+    protected override async Task<Result> ExecuteInternal(
+        IHandlerContainer container,
+        CancellationToken cancellationToken)
+    {
+        // Blocks other handlers while processing
+        var result = await ProcessLargeDataset(container.GetMessage());
+        await container.Client.SendTextMessageAsync(
+            container.GetChatId(),
+            result);
+        return Result.Ok();
+    }
+}
+
+// Good: Offload to background service
+[MessageHandler]
+public class LightweightHandler : MessageHandler
+{
+    private readonly IBackgroundJobQueue _jobQueue;
+
+    public LightweightHandler(IBackgroundJobQueue jobQueue)
+    {
+        _jobQueue = jobQueue;
+    }
+
+    protected override async Task<Result> ExecuteInternal(
+        IHandlerContainer container,
+        CancellationToken cancellationToken)
+    {
+        // Queue job and return immediately
+        await _jobQueue.EnqueueAsync(new ProcessDataJob
+        {
+            ChatId = container.GetChatId(),
+            Message = container.GetMessage()
+        });
+        
+        await container.Client.SendTextMessageAsync(
+            container.GetChatId(),
+            "Processing your request...");
+            
+        return Result.Ok();
+    }
+}
+```
+
+### Async Best Practices
+
+```csharp
+// Use ConfigureAwait(false) for library code
+protected override async Task<Result> ExecuteInternal(
+    IHandlerContainer container,
+    CancellationToken cancellationToken)
+{
+    var data = await _repository
+        .GetDataAsync(cancellationToken)
+        .ConfigureAwait(false);
+        
+    var processed = await _processor
+        .ProcessAsync(data, cancellationToken)
+        .ConfigureAwait(false);
+        
+    await container.Client.SendTextMessageAsync(
+        container.GetChatId(),
+        processed.ToString(),
+        cancellationToken: cancellationToken)
+        .ConfigureAwait(false);
+        
+    return Result.Ok();
+}
+```
+
+### Caching Strategies
+
+```csharp
+public class CachedDataHandler : MessageHandler
+{
+    private readonly IMemoryCache _cache;
+    private readonly IDataService _dataService;
+
+    public CachedDataHandler(IMemoryCache cache, IDataService dataService)
+    {
+        _cache = cache;
+        _dataService = dataService;
+    }
+
+    protected override async Task<Result> ExecuteInternal(
+        IHandlerContainer container,
+        CancellationToken cancellationToken)
+    {
+        var userId = container.GetSenderId();
+        var cacheKey = $"user_data_{userId}";
+
+        // Try to get from cache first
+        if (!_cache.TryGetValue(cacheKey, out UserData? userData))
+        {
+            // Cache miss - fetch from database
+            userData = await _dataService.GetUserDataAsync(
+                userId, 
+                cancellationToken);
+                
+            // Cache for 5 minutes
+            _cache.Set(cacheKey, userData, TimeSpan.FromMinutes(5));
+        }
+
+        await container.Client.SendTextMessageAsync(
+            container.GetChatId(),
+            $"Welcome back, {userData.Name}!",
+            cancellationToken: cancellationToken);
+            
+        return Result.Ok();
+    }
+}
+```
+
+## Database Optimization
+
+### Connection Pooling
+
+```csharp
+// Configure in Startup.cs or Program.cs
+services.AddDbContext<BotDbContext>(options =>
+    options.UseSqlServer(
+        connectionString,
+        sqlOptions =>
+        {
+            sqlOptions.CommandTimeout(30);
+            sqlOptions.EnableRetryOnFailure(
+                maxRetryCount: 3,
+                maxRetryDelay: TimeSpan.FromSeconds(5),
+                errorNumbersToAdd: null);
+        })
+    .UseQueryTrackingBehavior(QueryTrackingBehavior.NoTracking));
+```
+
+### Efficient Queries
+
+```csharp
+public class EfficientDatabaseHandler : MessageHandler
+{
+    private readonly BotDbContext _dbContext;
+
+    protected override async Task<Result> ExecuteInternal(
+        IHandlerContainer container,
+        CancellationToken cancellationToken)
+    {
+        var userId = container.GetSenderId();
+
+        // Good: Select only needed columns
+        var userName = await _dbContext.Users
+            .Where(u => u.Id == userId)
+            .Select(u => u.Name)
+            .FirstOrDefaultAsync(cancellationToken);
+
+        // Bad: Loading entire entity when only name is needed
+        // var user = await _dbContext.Users.FindAsync(userId);
+        // var userName = user.Name;
+
+        // Good: Use AsNoTracking for read-only queries
+        var stats = await _dbContext.UserStats
+            .AsNoTracking()
+            .Where(s => s.UserId == userId)
+            .ToListAsync(cancellationToken);
+
+        return Result.Ok();
+    }
+}
+```
+
+## Memory Management
+
+### Disposing Resources
+
+```csharp
+public class ResourceAwareHandler : MessageHandler
+{
+    protected override async Task<Result> ExecuteInternal(
+        IHandlerContainer container,
+        CancellationToken cancellationToken)
+    {
+        // Use 'using' for IDisposable resources
+        using var httpClient = new HttpClient();
+        var response = await httpClient.GetStringAsync(
+            "https://api.example.com/data",
+            cancellationToken);
+
+        // Resources are automatically disposed
+        return Result.Ok();
+    }
+
+    protected override bool Dispose(bool disposing)
+    {
+        if (disposing)
+        {
+            // Dispose managed resources
+            _customResource?.Dispose();
+        }
+        
+        // Return true to suppress garbage collection
+        return true;
+    }
+}
+```
+
+### State Cleanup
+
+<Warning>
+  State keepers store data in memory by default. Implement cleanup to prevent memory leaks.
+</Warning>
+
+```csharp
+public class StateCleanupService : BackgroundService
+{
+    private readonly StringStateKeeper _stateKeeper;
+    private readonly TimeSpan _staleThreshold = TimeSpan.FromHours(24);
+
+    protected override async Task ExecuteAsync(CancellationToken stoppingToken)
+    {
+        while (!stoppingToken.IsCancellationRequested)
+        {
+            // Clean up stale states every hour
+            await Task.Delay(TimeSpan.FromHours(1), stoppingToken);
+            CleanupStaleStates();
+        }
+    }
+
+    private void CleanupStaleStates()
+    {
+        // Implement cleanup logic based on last activity timestamp
+    }
+}
+```
+
+## Monitoring and Profiling
+
+### Performance Metrics
+
+```csharp
+public class MetricsHandler : MessageHandler
+{
+    private readonly ILogger<MetricsHandler> _logger;
+    private readonly Stopwatch _stopwatch = new();
+
+    protected override async Task<Result> ExecuteInternal(
+        IHandlerContainer container,
+        CancellationToken cancellationToken)
+    {
+        _stopwatch.Restart();
+        
+        try
+        {
+            // Handler logic
+            await ProcessMessageAsync(container, cancellationToken);
+            return Result.Ok();
+        }
+        finally
+        {
+            _stopwatch.Stop();
+            _logger.LogInformation(
+                "Handler {HandlerName} executed in {ElapsedMs}ms",
+                GetType().Name,
+                _stopwatch.ElapsedMilliseconds);
+        }
+    }
+}
+```
+
+## Best Practices Summary
+
+<Tip>
+  **Set concurrency limits**: Prevent resource exhaustion by limiting parallel handler execution.
+</Tip>
+
+<Tip>
+  **Use priorities wisely**: Higher priority for critical handlers, lower for logging/analytics.
+</Tip>
+
+<Tip>
+  **Keep handlers lightweight**: Offload heavy processing to background services.
+</Tip>
+
+<Note>
+  **Profile your bot**: Use logging and metrics to identify bottlenecks.
+</Note>
+
+<Warning>
+  **Avoid blocking calls**: Always use async/await for I/O operations.
+</Warning>
+
+<Tip>
+  **Cache frequently accessed data**: Reduce database load with intelligent caching.
+</Tip>

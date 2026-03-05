@@ -1,0 +1,434 @@
+---
+title: Sender Filters
+description: Filter messages based on sender properties in Telegrator
+---
+
+## Overview
+
+Sender filters allow you to filter messages based on the properties of the user who sent them. These filters are essential for implementing permission systems, user-specific features, and bot protection.
+
+## User Identification
+
+### FromUserId
+
+Filters messages from a specific user by their ID.
+
+<ParamField path="userId" type="long" required>
+  The user ID to match.
+</ParamField>
+
+**Example:**
+
+```csharp
+[FromUserId(123456789)]
+public async Task HandleSpecificUser()
+{
+    // Only executes for messages from user ID 123456789
+    await Bot.SendTextMessageAsync("Hello, specific user!");
+}
+
+[CommandHandler("admin")]
+[FromUserId(123456789)]
+public async Task HandleAdminCommand()
+{
+    // Admin command only works for this specific user
+}
+```
+
+**Finding User IDs:**
+
+```csharp
+public async Task LogUserId(Update update)
+{
+    var userId = update.Message?.From?.Id;
+    Console.WriteLine($"User ID: {userId}");
+    // Use this ID in your FromUserId filters
+}
+```
+
+### FromUsername
+
+Filters messages based on the sender's username.
+
+<ParamField path="username" type="string" required>
+  The username to match (without @).
+</ParamField>
+
+<ParamField path="comparison" type="StringComparison" default="InvariantCulture">
+  The string comparison method.
+</ParamField>
+
+**Example:**
+
+```csharp
+[FromUsername("john_doe")]
+public async Task HandleJohnDoe()
+{
+    // Only executes for messages from @john_doe
+}
+
+[FromUsername("admin", StringComparison.OrdinalIgnoreCase)]
+public async Task HandleAdmin()
+{
+    // Matches @admin, @Admin, @ADMIN, etc.
+}
+```
+
+**Note:** Not all users have usernames. Users can change their username, making this filter less reliable than `FromUserId` for identifying specific users.
+
+### FromUser
+
+Filters messages based on the sender's name (first name and optionally last name).
+
+<ParamField path="firstName" type="string" required>
+  The first name to match.
+</ParamField>
+
+<ParamField path="lastName" type="string">
+  The last name to match (optional).
+</ParamField>
+
+<ParamField path="comparison" type="StringComparison" default="InvariantCulture">
+  The string comparison method.
+</ParamField>
+
+**Example:**
+
+```csharp
+[FromUser("John", "Doe")]
+public async Task HandleJohnDoe()
+{
+    // Matches users with first name "John" and last name "Doe"
+}
+
+[FromUser("Alice")]
+public async Task HandleAlice()
+{
+    // Matches users with first name "Alice" (any or no last name)
+}
+
+[FromUser("Bob", null, StringComparison.OrdinalIgnoreCase)]
+public async Task HandleBob()
+{
+    // Matches "Bob", "bob", "BOB", etc.
+}
+
+[FromUser("Jane", "Smith", StringComparison.OrdinalIgnoreCase)]
+public async Task HandleJaneSmith()
+{
+    // Case-insensitive match for both names
+}
+```
+
+**Note:** Users can change their display name at any time, making this filter unreliable for persistent identification.
+
+## User Type
+
+### FromBot
+
+Filters messages sent by bots (not human users).
+
+**Example:**
+
+```csharp
+[FromBot]
+public async Task HandleBotMessage()
+{
+    // Only executes for messages from other bots
+    await LogBotActivity();
+}
+
+[TextContains("error")]
+[FromBot]
+public async Task HandleBotError()
+{
+    // Monitor error messages from other bots
+}
+```
+
+### NotFromBot
+
+Filters messages sent by human users (not bots).
+
+**Example:**
+
+```csharp
+[NotFromBot]
+public async Task HandleHumanMessage()
+{
+    // Only executes for messages from real users
+    await ProcessUserInput();
+}
+
+[CommandHandler("help")]
+[NotFromBot]
+public async Task HandleHelp()
+{
+    // Help command only for human users
+    await ShowHelpMenu();
+}
+```
+
+## User Status
+
+### FromPremiumUser
+
+Filters messages sent by Telegram Premium users.
+
+**Example:**
+
+```csharp
+[FromPremiumUser]
+public async Task HandlePremiumUser()
+{
+    // Only executes for Telegram Premium subscribers
+    await Bot.SendTextMessageAsync("Thank you for being a Premium user!");
+}
+
+[CommandHandler("premium")]
+[FromPremiumUser]
+public async Task HandlePremiumFeature()
+{
+    // Premium-only feature
+    await ActivatePremiumFeature();
+}
+```
+
+## Practical Examples
+
+### Admin System
+
+```csharp
+private readonly HashSet<long> adminIds = new()
+{
+    123456789,
+    987654321,
+    555555555
+};
+
+[CommandHandler("ban")]
+[FromUserId(123456789)]  // Owner only
+public async Task HandleBan()
+{
+    // Only the bot owner can ban
+}
+
+// Or check multiple admins programmatically:
+public async Task<bool> IsAdmin(long userId)
+{
+    return adminIds.Contains(userId);
+}
+```
+
+### User-Specific Features
+
+```csharp
+[CommandHandler("mystats")]
+[FromUserId(123456789)]
+public async Task ShowUserStats()
+{
+    // User-specific statistics
+    await Bot.SendTextMessageAsync("Your personal stats...");
+}
+
+[FromUserId(123456789)]
+[TextStartsWith("debug")]
+public async Task HandleDebugCommands()
+{
+    // Debug commands only for specific developer
+}
+```
+
+### Bot Protection
+
+```csharp
+[NotFromBot]
+[ChatType(ChatType.Group)]
+public async Task HandleGroupMessages()
+{
+    // Process only human messages in groups
+    // Prevents bot-to-bot message loops
+}
+
+[FromBot]
+public async Task LogBotActivity()
+{
+    // Monitor and log other bots' activity
+    var botName = Update.Message.From.FirstName;
+    Console.WriteLine($"Bot activity from: {botName}");
+}
+```
+
+### Premium Features
+
+```csharp
+[CommandHandler("analyze")]
+[FromPremiumUser]
+public async Task HandlePremiumAnalyze()
+{
+    // Advanced analysis for premium users
+    await PerformAdvancedAnalysis();
+}
+
+[CommandHandler("analyze")]
+[NotFromBot]
+public async Task HandleBasicAnalyze()
+{
+    // Basic analysis for non-premium users
+    // This will run for premium users too unless you add a filter
+    await PerformBasicAnalysis();
+}
+
+// Better approach: separate handlers
+[CommandHandler("features")]
+[FromPremiumUser]
+public async Task ShowPremiumFeatures()
+{
+    await Bot.SendTextMessageAsync("Premium features: Advanced analytics, Priority support...");
+}
+
+[CommandHandler("features")]
+public async Task ShowStandardFeatures()
+{
+    await Bot.SendTextMessageAsync("Standard features: Basic commands, Help...");
+}
+```
+
+### Owner-Only Commands
+
+```csharp
+const long OWNER_ID = 123456789;
+
+[CommandHandler("shutdown")]
+[FromUserId(OWNER_ID)]
+public async Task HandleShutdown()
+{
+    await Bot.SendTextMessageAsync("Shutting down...");
+    await ShutdownBot();
+}
+
+[CommandHandler("broadcast")]
+[FromUserId(OWNER_ID)]
+public async Task HandleBroadcast()
+{
+    await BroadcastMessageToAllChats();
+}
+
+[CommandHandler("stats")]
+[FromUserId(OWNER_ID)]
+public async Task HandleGlobalStats()
+{
+    await ShowGlobalStatistics();
+}
+```
+
+### Multi-Tier Permission System
+
+```csharp
+private readonly long OWNER_ID = 123456789;
+private readonly HashSet<long> ADMIN_IDS = new() { 111111111, 222222222 };
+private readonly HashSet<long> MODERATOR_IDS = new() { 333333333, 444444444 };
+
+// Owner level
+[CommandHandler("config")]
+[FromUserId(123456789)]
+public async Task HandleConfig() 
+{ 
+    await ShowConfiguration();
+}
+
+// Admin level - create separate handler for each admin
+[CommandHandler("ban")]
+[FromUserId(111111111)]
+public async Task HandleBan1() 
+{ 
+    await BanUser();
+}
+
+[CommandHandler("ban")]
+[FromUserId(222222222)]
+public async Task HandleBan2() 
+{ 
+    await BanUser();
+}
+
+// Or use programmatic checking for multiple users:
+[CommandHandler("kick")]
+public async Task HandleKick()
+{
+    var userId = Update.Message.From.Id;
+    
+    if (userId == OWNER_ID || ADMIN_IDS.Contains(userId))
+    {
+        await KickUser();
+    }
+    else
+    {
+        await Bot.SendTextMessageAsync("You don't have permission.");
+    }
+}
+```
+
+### Welcome Messages for Specific Users
+
+```csharp
+[FromUserId(123456789)]
+[TextEquals("hello", StringComparison.OrdinalIgnoreCase)]
+public async Task WelcomeOwner()
+{
+    await Bot.SendTextMessageAsync("Welcome back, Boss!");
+}
+
+[FromPremiumUser]
+[TextEquals("hello", StringComparison.OrdinalIgnoreCase)]
+public async Task WelcomePremium()
+{
+    await Bot.SendTextMessageAsync("Hello, Premium member!");
+}
+
+[NotFromBot]
+[TextEquals("hello", StringComparison.OrdinalIgnoreCase)]
+public async Task WelcomeRegular()
+{
+    await Bot.SendTextMessageAsync("Hello!");
+}
+```
+
+## Best Practices
+
+1. **Use User IDs for reliable identification**: Prefer `[FromUserId]` over username or name-based filters, as users can change these.
+
+2. **Protect against bot loops**: Use `[NotFromBot]` to prevent your bot from responding to other bots (including itself).
+
+3. **Implement proper permission checking**: For multi-admin systems, consider maintaining an admin list and checking programmatically:
+
+```csharp
+private readonly HashSet<long> admins = new() { 123, 456, 789 };
+
+public bool IsAdmin(long userId) => admins.Contains(userId);
+```
+
+4. **Log user information during development**: Capture user IDs and properties for testing:
+
+```csharp
+public void LogUserInfo(User user)
+{
+    Console.WriteLine($"User ID: {user.Id}");
+    Console.WriteLine($"Username: @{user.Username}");
+    Console.WriteLine($"Name: {user.FirstName} {user.LastName}");
+    Console.WriteLine($"Is Bot: {user.IsBot}");
+    Console.WriteLine($"Is Premium: {user.IsPremium}");
+}
+```
+
+5. **Combine with chat filters**: Create precise routing by combining sender and chat filters:
+
+```csharp
+[FromUserId(123456789)]       // Specific user
+[ChatType(ChatType.Group)]    // In groups only
+public async Task HandleAdminInGroups() { }
+```
+
+6. **Handle missing usernames gracefully**: Not all users have usernames, so avoid relying solely on `[FromUsername]`.
+
+7. **Consider privacy**: Be careful when logging or storing user information. Follow Telegram's privacy guidelines and applicable data protection regulations.

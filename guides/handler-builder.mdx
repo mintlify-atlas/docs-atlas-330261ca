@@ -1,0 +1,566 @@
+---
+title: Handler Builder
+description: Learn how to use the fluent handler builder API to create handlers programmatically in Telegrator
+---
+
+# Handler Builder
+
+The Handler Builder API provides a fluent, programmatic way to create handlers without defining class-based handlers. This is useful for simple handlers, dynamic handler creation, or when you prefer a more functional programming style.
+
+## Why Use Handler Builder?
+
+<CardGroup cols={2}>
+  <Card title="No Class Boilerplate" icon="code">
+    Create handlers inline without defining separate classes
+  </Card>
+  <Card title="Dynamic Creation" icon="wand-magic-sparkles">
+    Generate handlers at runtime based on configuration
+  </Card>
+  <Card title="Functional Style" icon="function">
+    Use lambda expressions and functional programming patterns
+  </Card>
+  <Card title="Quick Prototyping" icon="rocket">
+    Rapidly test handler logic without ceremony
+  </Card>
+</CardGroup>
+
+## Basic Message Handler
+
+Create a simple message handler using the builder:
+
+```csharp
+using Telegrator;
+using Telegrator.Handlers.Building;
+
+var bot = new TelegratorClient("YOUR_BOT_TOKEN");
+
+// Build a message handler inline
+bot.Handlers.Message()
+    .Build(async (container, cancellation) =>
+    {
+        await container.Reply(
+            "Hello from a built handler!",
+            cancellationToken: cancellation);
+        
+        return Result.Ok();
+    });
+
+bot.StartReceiving();
+```
+
+## Adding Filters
+
+Add filters to control when the handler executes:
+
+```csharp
+using Telegrator.Filters;
+using Telegram.Bot.Types;
+
+// Handler that only processes messages containing "hello"
+bot.Handlers.Message()
+    .AddFilter(Filter<Update>.If(ctx => 
+        ctx.Input.Message?.Text?.Contains("hello", StringComparison.OrdinalIgnoreCase) == true
+    ))
+    .Build(async (container, cancellation) =>
+    {
+        await container.Reply("Hello to you too!", cancellationToken: cancellation);
+        return Result.Ok();
+    });
+```
+
+### Multiple Filters
+
+```csharp
+using Telegram.Bot.Types.Enums;
+
+// Handler with multiple filters (all must pass)
+bot.Handlers.Message()
+    .AddFilter(Filter<Update>.If(ctx => 
+        ctx.Input.Message?.Chat.Type == ChatType.Private))
+    .AddFilter(Filter<Update>.If(ctx => 
+        ctx.Input.Message?.Text?.Length > 10))
+    .AddFilter(Filter<Update>.If(ctx => 
+        ctx.Input.Message?.From?.IsBot == false))
+    .Build(async (container, cancellation) =>
+    {
+        await container.Reply(
+            "Received a long message in private chat from a human!",
+            cancellationToken: cancellation);
+        return Result.Ok();
+    });
+```
+
+### Using AddFilters for Multiple Filters
+
+```csharp
+var isPrivateChat = Filter<Update>.If(ctx => 
+    ctx.Input.Message?.Chat.Type == ChatType.Private);
+
+var isLongMessage = Filter<Update>.If(ctx => 
+    ctx.Input.Message?.Text?.Length > 10);
+
+var isFromHuman = Filter<Update>.If(ctx => 
+    ctx.Input.Message?.From?.IsBot == false);
+
+bot.Handlers.Message()
+    .AddFilters(isPrivateChat, isLongMessage, isFromHuman)
+    .Build(async (container, cancellation) =>
+    {
+        await container.Reply("All filters passed!", cancellationToken: cancellation);
+        return Result.Ok();
+    });
+```
+
+## Setting Priority and Concurrency
+
+Control handler execution order and concurrency:
+
+```csharp
+// High priority handler (executes before others)
+bot.Handlers.Message()
+    .SetPriority(10)
+    .AddFilter(Filter<Update>.If(ctx => 
+        ctx.Input.Message?.Text?.Contains("urgent") == true))
+    .Build(async (container, cancellation) =>
+    {
+        await container.Reply("Urgent message processed!", cancellationToken: cancellation);
+        return Result.Ok();
+    });
+
+// Low priority handler (executes after others)
+bot.Handlers.Message()
+    .SetPriority(1)
+    .Build(async (container, cancellation) =>
+    {
+        await container.Reply("Normal priority message", cancellationToken: cancellation);
+        return Result.Ok();
+    });
+```
+
+### Setting Concurrency
+
+```csharp
+// Control concurrent execution
+bot.Handlers.Message()
+    .SetConcurreny(5) // Max 5 concurrent executions
+    .Build(async (container, cancellation) =>
+    {
+        // Expensive operation
+        await Task.Delay(5000, cancellation);
+        await container.Reply("Done!", cancellationToken: cancellation);
+        return Result.Ok();
+    });
+```
+
+### Setting Both Priority and Concurrency
+
+```csharp
+bot.Handlers.Message()
+    .SetIndexer(concurrency: 3, priority: 5)
+    .Build(async (container, cancellation) =>
+    {
+        await container.Reply("Processing...", cancellationToken: cancellation);
+        return Result.Ok();
+    });
+```
+
+## Adding State Keepers
+
+Create stateful handlers using the builder:
+
+### Numeric State
+
+```csharp
+using Telegrator.Annotations.StateKeeping;
+using Telegrator.StateKeeping;
+
+// Handler for state 0 (initial state)
+bot.Handlers.Message()
+    .SetNumericState(0)
+    .AddFilter(Filter<Update>.If(ctx => 
+        ctx.Input.Message?.Text == "/start"))
+    .Build(async (container, cancellation) =>
+    {
+        container.CreateNumericState();
+        container.ForwardNumericState(); // Move to state 1
+        
+        await container.Reply(
+            "Welcome! What's your name?",
+            cancellationToken: cancellation);
+        
+        return Result.Ok();
+    });
+
+// Handler for state 1
+bot.Handlers.Message()
+    .SetNumericState(1)
+    .Build(async (container, cancellation) =>
+    {
+        string name = container.HandlingUpdate.Message?.Text ?? "";
+        container.ExtraData["userName"] = name;
+        container.ForwardNumericState(); // Move to state 2
+        
+        await container.Reply(
+            $"Nice to meet you, {name}! How old are you?",
+            cancellationToken: cancellation);
+        
+        return Result.Ok();
+    });
+
+// Handler for state 2
+bot.Handlers.Message()
+    .SetNumericState(2)
+    .Build(async (container, cancellation) =>
+    {
+        if (int.TryParse(container.HandlingUpdate.Message?.Text, out int age))
+        {
+            string name = container.ExtraData["userName"] as string ?? "";
+            container.DeleteNumericState(); // Clear state
+            
+            await container.Reply(
+                $"Got it! {name}, age {age}. Registration complete!",
+                cancellationToken: cancellation);
+        }
+        else
+        {
+            await container.Reply(
+                "Please enter a valid number.",
+                cancellationToken: cancellation);
+        }
+        
+        return Result.Ok();
+    });
+```
+
+### String State
+
+```csharp
+// Using string states instead of numeric
+bot.Handlers.Message()
+    .SetStringState("awaiting_name")
+    .Build(async (container, cancellation) =>
+    {
+        string name = container.HandlingUpdate.Message?.Text ?? "";
+        container.ExtraData["userName"] = name;
+        container.SetStringState("awaiting_age");
+        
+        await container.Reply(
+            $"Thanks, {name}! Now tell me your age.",
+            cancellationToken: cancellation);
+        
+        return Result.Ok();
+    });
+
+bot.Handlers.Message()
+    .SetStringState("awaiting_age")
+    .Build(async (container, cancellation) =>
+    {
+        // Process age...
+        return Result.Ok();
+    });
+```
+
+### Enum State
+
+```csharp
+public enum RegistrationState
+{
+    Start,
+    CollectingName,
+    CollectingAge,
+    Complete
+}
+
+bot.Handlers.Message()
+    .SetEnumState(RegistrationState.CollectingName)
+    .Build(async (container, cancellation) =>
+    {
+        string name = container.HandlingUpdate.Message?.Text ?? "";
+        container.SetEnumState(RegistrationState.CollectingAge);
+        
+        await container.Reply($"Hello, {name}!", cancellationToken: cancellation);
+        return Result.Ok();
+    });
+```
+
+### Custom State Key Resolver
+
+```csharp
+using Telegrator.StateKeeping;
+
+// Track state per chat instead of per user
+bot.Handlers.Message()
+    .SetNumericState(1, new ChatIdResolver())
+    .Build(async (container, cancellation) =>
+    {
+        await container.Reply(
+            "This state is tracked per chat, not per user!",
+            cancellationToken: cancellation);
+        return Result.Ok();
+    });
+```
+
+## Callback Query Handlers
+
+Build callback query handlers:
+
+```csharp
+bot.Handlers.CallbackQuery()
+    .AddFilter(Filter<Update>.If(ctx => 
+        ctx.Input.CallbackQuery?.Data == "button_1"))
+    .Build(async (container, cancellation) =>
+    {
+        var callbackQuery = container.ActualUpdate;
+        
+        await container.Client.AnswerCallbackQueryAsync(
+            callbackQuery.Id,
+            "Button 1 clicked!",
+            cancellationToken: cancellation);
+        
+        return Result.Ok();
+    });
+```
+
+## Targeted Filters
+
+Filter on specific parts of the update:
+
+```csharp
+using Telegram.Bot.Types;
+
+// Filter based on message properties
+bot.Handlers.Message()
+    .AddTargetedFilter(
+        getTarget: update => update.Message,
+        filter: Filter<Message>.If(ctx => 
+            ctx.Input.Text?.StartsWith("/") == true))
+    .Build(async (container, cancellation) =>
+    {
+        await container.Reply("Command detected!", cancellationToken: cancellation);
+        return Result.Ok();
+    });
+
+// Multiple targeted filters
+bot.Handlers.Message()
+    .AddTargetedFilters(
+        getTarget: update => update.Message,
+        filters: new[]
+        {
+            Filter<Message>.If(ctx => ctx.Input.Text?.Length > 5),
+            Filter<Message>.If(ctx => ctx.Input.From?.IsBot == false)
+        })
+    .Build(async (container, cancellation) =>
+    {
+        await container.Reply("Both targeted filters passed!", cancellationToken: cancellation);
+        return Result.Ok();
+    });
+```
+
+## Update Validation
+
+Add custom update validation:
+
+```csharp
+bot.Handlers.Message()
+    .SetUpdateValidating(update =>
+    {
+        // Custom validation logic
+        if (update.Message?.From?.Id == 123456789)
+        {
+            return false; // Reject this update
+        }
+        return true; // Accept this update
+    })
+    .Build(async (container, cancellation) =>
+    {
+        await container.Reply("Update validated!", cancellationToken: cancellation);
+        return Result.Ok();
+    });
+```
+
+## Building Different Update Types
+
+Create handlers for any update type:
+
+<CodeGroup>
+```csharp Message Handler
+bot.Handlers.Message()
+    .Build(async (container, cancellation) =>
+    {
+        var message = container.ActualUpdate;
+        await container.Reply($"Message: {message.Text}", cancellationToken: cancellation);
+        return Result.Ok();
+    });
+```
+
+```csharp Callback Query Handler
+bot.Handlers.CallbackQuery()
+    .Build(async (container, cancellation) =>
+    {
+        var query = container.ActualUpdate;
+        await container.Client.AnswerCallbackQueryAsync(
+            query.Id,
+            "Callback received",
+            cancellationToken: cancellation);
+        return Result.Ok();
+    });
+```
+
+```csharp Inline Query Handler
+bot.Handlers.InlineQuery()
+    .Build(async (container, cancellation) =>
+    {
+        var query = container.ActualUpdate;
+        // Process inline query
+        return Result.Ok();
+    });
+```
+
+```csharp Edited Message Handler
+bot.Handlers.EditedMessage()
+    .Build(async (container, cancellation) =>
+    {
+        var editedMessage = container.ActualUpdate;
+        await container.Reply("Message edited!", cancellationToken: cancellation);
+        return Result.Ok();
+    });
+```
+</CodeGroup>
+
+## Chaining Builder Methods
+
+The builder uses a fluent API - chain multiple configuration methods:
+
+```csharp
+bot.Handlers.Message()
+    .SetPriority(10)
+    .SetConcurreny(3)
+    .SetNumericState(1)
+    .AddFilter(Filter<Update>.If(ctx => 
+        ctx.Input.Message?.Chat.Type == ChatType.Private))
+    .AddFilter(Filter<Update>.If(ctx => 
+        ctx.Input.Message?.Text?.Length > 0))
+    .SetUpdateValidating(update => update.Message?.From?.IsBot == false)
+    .Build(async (container, cancellation) =>
+    {
+        await container.Reply("Fully configured handler!", cancellationToken: cancellation);
+        return Result.Ok();
+    });
+```
+
+## Complex Example: Order Flow
+
+Here's a complete order processing flow using handler builder:
+
+```csharp
+using Telegrator;
+using Telegrator.Filters;
+using Telegram.Bot.Types;
+using Telegram.Bot.Types.ReplyMarkups;
+
+var bot = new TelegratorClient("YOUR_BOT_TOKEN");
+
+// Start order
+bot.Handlers.Message()
+    .AddFilter(Filter<Update>.If(ctx => 
+        ctx.Input.Message?.Text == "/order"))
+    .SetNumericState(SpecialState.NoState)
+    .Build(async (container, cancellation) =>
+    {
+        container.CreateNumericState();
+        container.SetNumericState(1);
+        
+        var keyboard = new ReplyKeyboardMarkup(new[]
+        {
+            new KeyboardButton[] { "Pizza", "Burger", "Salad" }
+        }) { ResizeKeyboard = true };
+        
+        await container.Reply(
+            "What would you like to order?",
+            replyMarkup: keyboard,
+            cancellationToken: cancellation);
+        
+        return Result.Ok();
+    });
+
+// Select item
+bot.Handlers.Message()
+    .SetNumericState(1)
+    .Build(async (container, cancellation) =>
+    {
+        string item = container.HandlingUpdate.Message?.Text ?? "";
+        container.ExtraData["orderItem"] = item;
+        container.SetNumericState(2);
+        
+        await container.Reply(
+            $"How many {item}s would you like?",
+            replyMarkup: new ReplyKeyboardRemove(),
+            cancellationToken: cancellation);
+        
+        return Result.Ok();
+    });
+
+// Enter quantity
+bot.Handlers.Message()
+    .SetNumericState(2)
+    .Build(async (container, cancellation) =>
+    {
+        if (!int.TryParse(container.HandlingUpdate.Message?.Text, out int quantity))
+        {
+            await container.Reply(
+                "Please enter a valid number.",
+                cancellationToken: cancellation);
+            return Result.Ok();
+        }
+        
+        string item = container.ExtraData["orderItem"] as string ?? "";
+        container.DeleteNumericState();
+        
+        // Process order (pseudo-code)
+        // await ProcessOrder(item, quantity);
+        
+        await container.Reply(
+            $"Order placed: {quantity}x {item}. Thank you!",
+            cancellationToken: cancellation);
+        
+        return Result.Ok();
+    });
+
+bot.StartReceiving();
+```
+
+## Best Practices
+
+1. **Keep handlers simple** - Complex logic should be in separate methods/classes
+2. **Use meaningful variable names** - Make lambda parameters clear
+3. **Extract reusable filters** - Define filters once, reuse across handlers
+4. **Consider class-based handlers** - For complex logic, class-based handlers are more maintainable
+5. **Document complex builders** - Add comments explaining the flow
+6. **Use builder for prototyping** - Great for testing, refactor to classes later
+7. **Leverage fluent API** - Chain methods for readable configuration
+
+## When to Use Class-Based vs Builder
+
+### Use Handler Builder When:
+- Creating simple, one-off handlers
+- Prototyping and testing
+- Handler logic is a few lines
+- You prefer functional programming style
+
+### Use Class-Based Handlers When:
+- Handler has complex logic
+- You need dependency injection
+- Handler logic is reusable
+- You want better testability
+- Multiple related handlers share code
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Creating Handlers" icon="code" href="/guides/creating-handlers">
+    Learn about class-based handler creation
+  </Card>
+  <Card title="Working with Filters" icon="filter" href="/guides/working-with-filters">
+    Explore the complete filtering system
+  </Card>
+</CardGroup>

@@ -1,80 +1,524 @@
 ---
-title: "Quickstart"
-description: "Start building awesome documentation in minutes"
+title: Quick Start
+description: Build your first Telegram bot with Telegrator in minutes
 ---
 
-## Get started in three steps
+This guide will walk you through creating a fully functional Telegram bot using Telegrator. You'll learn the fundamental concepts and have a working bot by the end.
 
-Get your documentation site running locally and make your first customization.
+## What You'll Build
 
-### Step 1: Set up your local environment
+By the end of this guide, you'll have a bot that:
 
-<AccordionGroup>
-  <Accordion icon="copy" title="Clone your docs locally">
-    During the onboarding process, you created a GitHub repository with your docs content if you didn't already have one. You can find a link to this repository in your [dashboard](https://dashboard.mintlify.com).
-    
-    To clone the repository locally so that you can make and preview changes to your docs, follow the [Cloning a repository](https://docs.github.com/en/repositories/creating-and-managing-repositories/cloning-a-repository) guide in the GitHub docs.
-  </Accordion>
-  <Accordion icon="rectangle-terminal" title="Start the preview server">
-    1. Install the Mintlify CLI: `npm i -g mint`
-    2. Navigate to your docs directory and run: `mint dev`
-    3. Open `http://localhost:3000` to see your docs live!
-    
-    <Tip>Your preview updates automatically as you edit files.</Tip>
-  </Accordion>
-</AccordionGroup>
+- Responds to the `/start` command
+- Handles text messages
+- Uses filters to control when handlers execute
+- Demonstrates the mediator-based architecture
 
-### Step 2: Deploy your changes
+## Choose Your Approach
 
-<AccordionGroup>
-  <Accordion icon="github" title="Install our GitHub app">
-    Install the Mintlify GitHub app from your [dashboard](https://dashboard.mintlify.com/settings/organization/github-app).
-    
-    Our GitHub app automatically deploys your changes to your docs site, so you don't need to manage deployments yourself.
-</Accordion>
-<Accordion icon="palette" title="Update your site name and colors">
-    For a first change, let's update the name and colors of your docs site.
+<Tabs>
+  <Tab title="Basic (Core Package)">
+    Best for simple bots or learning the framework
+  </Tab>
+  <Tab title="Hosted (Recommended)">
+    Best for production bots with DI and configuration
+  </Tab>
+  <Tab title="Web (Advanced)">
+    Best for ASP.NET Core applications with webhooks
+  </Tab>
+</Tabs>
 
-    1. Open `docs.json` in your editor.
-    2. Change the `"name"` field to your project name.
-    3. Update the `"colors"` to match your brand.
-    4. Save and see your changes instantly at `http://localhost:3000`.
+## Basic Bot (Core Package)
 
-    <Tip>Try changing the primary color to see an immediate difference!</Tip>
-  </Accordion>
-</AccordionGroup>
+### Step 1: Create a New Project
 
-### Step 3: Go live
+<Steps>
+  <Step title="Create console application">
+    ```bash
+    dotnet new console -n MyTelegramBot
+    cd MyTelegramBot
+    ```
+  </Step>
+  
+  <Step title="Install Telegrator">
+    ```bash
+    dotnet add package Telegrator
+    ```
+  </Step>
+</Steps>
 
-<Accordion icon="rocket" title="Publish your docs">
-  1. Commit and push your changes.
-  2. Your docs will update and be live in moments!
-</Accordion>
+### Step 2: Create Your First Handler
 
-## Next steps
+Create a new file called `StartCommandHandler.cs`:
 
-Now that you have your docs running, explore these key features:
+```csharp StartCommandHandler.cs
+using Telegram.Bot.Types;
+using Telegram.Bot.Types.Enums;
+using Telegrator.Handlers;
+using Telegrator.Annotations;
 
-<CardGroup cols={2}>
-
-<Card title="Write Content" icon="pen-to-square" href="/essentials/markdown">
-  Learn MDX syntax and start writing your documentation.
-</Card>
-
-<Card title="Customize style" icon="palette" href="/essentials/settings">
-  Make your docs match your brand perfectly.
-</Card>
-
-<Card title="Add code examples" icon="square-code" href="/essentials/code">
-  Include syntax-highlighted code blocks.
-</Card>
-
-<Card title="API documentation" icon="code" href="/api-reference/introduction">
-  Auto-generate API docs from OpenAPI specs.
-</Card>
-
-</CardGroup>
+[CommandHandler]
+[CommandAlias("start", "hello")]
+[ChatType(ChatType.Private)]
+public class StartCommandHandler : CommandHandler
+{
+    public override async Task<Result> Execute(
+        IAbstractHandlerContainer<Message> container, 
+        CancellationToken cancellation)
+    {
+        string username = Input.From?.FirstName ?? "friend";
+        await Response($"Hello, {username}! Welcome to my bot!", cancellationToken: cancellation);
+        return Result.Ok();
+    }
+}
+```
 
 <Note>
-  **Need help?** See our [full documentation](https://mintlify.com/docs) or join our [community](https://mintlify.com/community).
+The `[CommandHandler]` attribute marks this class as a command handler, while `[CommandAlias]` specifies which commands trigger it (both `/start` and `/hello` will work).
 </Note>
+
+### Step 3: Create a Message Handler
+
+Create `EchoHandler.cs` to respond to all text messages:
+
+```csharp EchoHandler.cs
+using Telegram.Bot.Types;
+using Telegrator.Handlers;
+using Telegrator.Annotations;
+
+[MessageHandler]
+public class EchoHandler : MessageHandler
+{
+    public override async Task<Result> Execute(
+        IAbstractHandlerContainer<Message> container, 
+        CancellationToken cancellation)
+    {
+        if (Input.Text != null)
+        {
+            await Reply($"You said: {Input.Text}", cancellationToken: cancellation);
+        }
+        
+        return Result.Ok();
+    }
+}
+```
+
+### Step 4: Initialize and Start the Bot
+
+Update your `Program.cs`:
+
+```csharp Program.cs
+using Telegrator;
+
+// Create bot client with your token from BotFather
+var bot = new TelegratorClient("YOUR_BOT_TOKEN_HERE");
+
+// Register handlers
+bot.Handlers.AddHandler<StartCommandHandler>();
+bot.Handlers.AddHandler<EchoHandler>();
+
+// Start receiving updates
+Console.WriteLine("Bot is starting...");
+bot.StartReceiving();
+
+// Keep the application running
+Console.WriteLine("Bot is running. Press any key to stop.");
+Console.ReadKey();
+```
+
+### Step 5: Run Your Bot
+
+```bash
+dotnet run
+```
+
+<Tip>
+Get your bot token from [@BotFather](https://t.me/botfather) on Telegram. Never commit tokens to source control!
+</Tip>
+
+## Hosted Bot (Recommended)
+
+For production applications, use the Hosting package with dependency injection and configuration.
+
+### Step 1: Create Project and Install Packages
+
+```bash
+dotnet new console -n MyHostedBot
+cd MyHostedBot
+dotnet add package Telegrator.Hosting
+```
+
+### Step 2: Create appsettings.json
+
+```json appsettings.json
+{
+  "TelegramBotClientOptions": {
+    "Token": "YOUR_BOT_TOKEN_HERE"
+  },
+  "ReceiverOptions": {
+    "DropPendingUpdates": true,
+    "Limit": 100
+  },
+  "Logging": {
+    "LogLevel": {
+      "Default": "Information",
+      "Telegrator": "Debug"
+    }
+  }
+}
+```
+
+<Note>
+Make sure to set "Copy to Output Directory" to "Copy if newer" for `appsettings.json` in your `.csproj`:
+
+```xml
+<ItemGroup>
+  <None Update="appsettings.json">
+    <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+  </None>
+</ItemGroup>
+```
+</Note>
+
+### Step 3: Create Handlers
+
+Create `Handlers/StartCommandHandler.cs`:
+
+```csharp Handlers/StartCommandHandler.cs
+using Telegram.Bot.Types;
+using Telegram.Bot.Types.Enums;
+using Telegrator.Handlers;
+using Telegrator.Annotations;
+
+namespace MyHostedBot.Handlers;
+
+[CommandHandler]
+[CommandAlias("start")]
+[ChatType(ChatType.Private)]
+public class StartCommandHandler : CommandHandler
+{
+    public override async Task<Result> Execute(
+        IAbstractHandlerContainer<Message> container, 
+        CancellationToken cancellation)
+    {
+        string message = $"""
+            Welcome to my bot! 
+            
+            Available commands:
+            /start - Show this message
+            /help - Get help
+            /echo [text] - Echo your message
+            """;
+            
+        await Response(message, cancellationToken: cancellation);
+        return Result.Ok();
+    }
+}
+```
+
+Create `Handlers/HelpCommandHandler.cs`:
+
+```csharp Handlers/HelpCommandHandler.cs
+using Telegram.Bot.Types;
+using Telegrator.Handlers;
+using Telegrator.Annotations;
+
+namespace MyHostedBot.Handlers;
+
+[CommandHandler]
+[CommandAlias("help")]
+public class HelpCommandHandler : CommandHandler
+{
+    public override async Task<Result> Execute(
+        IAbstractHandlerContainer<Message> container, 
+        CancellationToken cancellation)
+    {
+        await Response(
+            "This bot demonstrates Telegrator framework features. Try sending me a message!",
+            cancellationToken: cancellation
+        );
+        return Result.Ok();
+    }
+}
+```
+
+Create `Handlers/EchoCommandHandler.cs`:
+
+```csharp Handlers/EchoCommandHandler.cs
+using Telegram.Bot.Types;
+using Telegrator.Handlers;
+using Telegrator.Annotations;
+
+namespace MyHostedBot.Handlers;
+
+[CommandHandler]
+[CommandAlias("echo")]
+public class EchoCommandHandler : CommandHandler
+{
+    public override async Task<Result> Execute(
+        IAbstractHandlerContainer<Message> container, 
+        CancellationToken cancellation)
+    {
+        if (string.IsNullOrWhiteSpace(ArgumentsString))
+        {
+            await Response("Usage: /echo <text>", cancellationToken: cancellation);
+        }
+        else
+        {
+            await Response($"Echo: {ArgumentsString}", cancellationToken: cancellation);
+        }
+        
+        return Result.Ok();
+    }
+}
+```
+
+<Note>
+The `ArgumentsString` property in `CommandHandler` provides everything after the command, while `Arguments` gives you an array of individual arguments.
+</Note>
+
+### Step 4: Update Program.cs
+
+```csharp Program.cs
+using Telegrator.Hosting;
+
+// Create builder with settings
+TelegramBotHostBuilder builder = TelegramBotHost.CreateBuilder(
+    new TelegramBotHostBuilderSettings()
+    {
+        Args = args,
+        ExceptIntersectingCommandAliases = true
+    }
+);
+
+// Automatically discover and register all handlers in the assembly
+builder.Handlers.CollectHandlersAssemblyWide();
+
+// Optional: Register custom services
+// builder.Services.AddSingleton<IMyService, MyService>();
+
+// Build the host
+TelegramBotHost telegramBot = builder.Build();
+
+// Set bot commands in Telegram UI
+telegramBot.SetBotCommands();
+
+// Add logging adapter to connect Telegrator logs with Microsoft.Extensions.Logging
+telegramBot.AddLoggingAdapter();
+
+// Run the bot
+Console.WriteLine("Bot is starting...");
+telegramBot.Run();
+```
+
+### Step 5: Run the Bot
+
+```bash
+dotnet run
+```
+
+<Tip>
+The `CollectHandlersAssemblyWide()` method automatically discovers and registers all handlers in your assembly. You can also register handlers individually using `builder.Handlers.AddHandler<T>()`.
+</Tip>
+
+## Web Bot (Webhooks)
+
+For ASP.NET Core applications using webhooks instead of long polling.
+
+### Step 1: Create and Configure Project
+
+```bash
+dotnet new web -n MyWebBot
+cd MyWebBot
+dotnet add package Telegrator.Hosting.Web
+```
+
+### Step 2: Create appsettings.json
+
+```json appsettings.json
+{
+  "TelegramBotClientOptions": {
+    "Token": "YOUR_BOT_TOKEN_HERE"
+  },
+  "TelegratorWebOptions": {
+    "WebhookUri": "https://your-domain.com/bot",
+    "DropPendingUpdates": true
+  },
+  "Logging": {
+    "LogLevel": {
+      "Default": "Information",
+      "Telegrator": "Debug"
+    }
+  }
+}
+```
+
+<Warning>
+For webhooks, you need a publicly accessible HTTPS URL. Telegram requires SSL/TLS. For local development, use tools like ngrok or localtunnel.
+</Warning>
+
+### Step 3: Create Handlers
+
+Use the same handlers as in the hosted example above.
+
+### Step 4: Configure Program.cs
+
+```csharp Program.cs
+using Telegrator.Hosting;
+using Telegrator.Hosting.Web;
+
+// Create web host builder
+TelegramBotWebHostBuilder builder = TelegramBotWebHost.CreateBuilder(
+    new TelegramBotWebOptions()
+    {
+        Args = args,
+        ExceptIntersectingCommandAliases = true
+    }
+);
+
+// Register handlers
+builder.Handlers.CollectHandlersAssemblyWide();
+
+// Optional: Add your services
+// builder.Services.AddSingleton<IMyService, MyService>();
+
+// Build and configure
+TelegramBotWebHost telegramBot = builder.Build();
+telegramBot.SetBotCommands();
+telegramBot.AddLoggingAdapter();
+
+// Run the web application
+Console.WriteLine("Web bot is starting...");
+telegramBot.Run();
+```
+
+## Understanding Handler Priority
+
+Handlers execute based on their importance level. You can control execution order:
+
+```csharp
+[CommandHandler(importance: 10)]  // Higher importance = executes first
+[CommandAlias("admin")]
+public class AdminCommandHandler : CommandHandler
+{
+    // This handler will execute before handlers with lower importance
+}
+
+[MessageHandler(importance: 0)]  // Default importance
+public class GeneralMessageHandler : MessageHandler
+{
+    // This handler executes after high-importance handlers
+}
+```
+
+<Note>
+The `importance` parameter in handler attributes controls execution order. Higher values execute first. Default is 0 for messages and 1 for commands.
+</Note>
+
+## Using Filters
+
+Filters control when handlers execute. Combine multiple filters for precise control:
+
+```csharp
+using Telegram.Bot.Types.Enums;
+using Telegrator.Handlers;
+using Telegrator.Annotations;
+
+[CommandHandler]
+[CommandAlias("admin")]
+[ChatType(ChatType.Private)]  // Only in private chats
+[SenderId(123456789)]          // Only for specific user
+public class AdminCommandHandler : CommandHandler
+{
+    public override async Task<Result> Execute(
+        IAbstractHandlerContainer<Message> container, 
+        CancellationToken cancellation)
+    {
+        await Response("Admin panel loading...", cancellationToken: cancellation);
+        return Result.Ok();
+    }
+}
+```
+
+Common filter attributes:
+
+- `[ChatType(ChatType.Private)]` - Filter by chat type
+- `[SenderId(id)]` - Filter by sender ID
+- `[ChatId(id)]` - Filter by chat ID
+- `[TextContains("word")]` - Filter messages containing text
+- `[TextRegex(@"pattern")]` - Filter by regex pattern
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Handlers & Filters" icon="filter" href="/core-concepts/handlers">
+    Learn about all available handler types and filters
+  </Card>
+  <Card title="State Management" icon="database" href="/core-concepts/state-management">
+    Handle user conversations and multi-step workflows
+  </Card>
+  <Card title="Dependency Injection" icon="plug" href="/hosting/console-apps">
+    Use services and DI in your handlers
+  </Card>
+  <Card title="Error Handling" icon="bug" href="/advanced/error-handling">
+    Gracefully handle errors and exceptions
+  </Card>
+</CardGroup>
+
+## Common Patterns
+
+### Responding vs Replying
+
+```csharp
+// Response - sends a new message to the chat
+await Response("Hello!");
+
+// Reply - replies to the message that triggered the handler
+await Reply("Hello!");  // Shows as a reply in Telegram
+```
+
+### Accessing Update Data
+
+```csharp
+public override async Task<Result> Execute(
+    IAbstractHandlerContainer<Message> container, 
+    CancellationToken cancellation)
+{
+    // Access the message that triggered this handler
+    Message message = Input;
+    
+    // Access user information
+    long userId = message.From?.Id ?? 0;
+    string username = message.From?.Username ?? "unknown";
+    
+    // Access chat information
+    long chatId = message.Chat.Id;
+    ChatType chatType = message.Chat.Type;
+    
+    // Access message content
+    string? text = message.Text;
+    
+    await Response($"User {username} (ID: {userId}) in chat {chatId}");
+    return Result.Ok();
+}
+```
+
+### Returning Results
+
+```csharp
+// Success - handler completed successfully
+return Result.Ok();
+
+// With a value
+return Result.Ok(someData);
+
+// Failure - handler encountered an error
+return Result.Fail("Something went wrong");
+
+// Stop further handler execution
+return Result.Break();
+```
+
+<Tip>
+Explore the [GitHub repository](https://github.com/Rikitav/Telegrator) for more examples and the complete source code!
+</Tip>

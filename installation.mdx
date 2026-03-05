@@ -1,0 +1,230 @@
+---
+title: Installation
+description: Learn how to install and set up Telegrator for building Telegram bots in C#
+---
+
+Telegrator is a modern reactive framework for building Telegram bots in C# with aspect-oriented design and mediator-based dispatching. This guide will help you get started with installation and setup.
+
+## Prerequisites
+
+Before installing Telegrator, ensure you have:
+
+<CardGroup cols={2}>
+  <Card title=".NET SDK" icon="code">
+    - .NET Standard 2.0+ for core package
+    - .NET 8.0+ for hosting packages
+  </Card>
+  <Card title="Bot Token" icon="robot">
+    Get your bot token from [@BotFather](https://t.me/botfather) on Telegram
+  </Card>
+</CardGroup>
+
+## Package Overview
+
+Telegrator consists of three main NuGet packages:
+
+<CardGroup cols={3}>
+  <Card title="Telegrator" icon="box">
+    **Core Framework**
+    
+    The main package with handlers, filters, and reactive capabilities
+  </Card>
+  <Card title="Telegrator.Hosting" icon="server">
+    **.NET Generic Host**
+    
+    Integration with Microsoft.Extensions.Hosting for background services
+  </Card>
+  <Card title="Telegrator.Hosting.Web" icon="globe">
+    **ASP.NET Core**
+    
+    Webhook support and ASP.NET Core integration
+  </Card>
+</CardGroup>
+
+## Installation
+
+### Option 1: Core Package Only
+
+Install the core Telegrator package for basic bot functionality:
+
+<CodeGroup>
+
+```bash .NET CLI
+dotnet add package Telegrator
+```
+
+```bash NuGet CLI
+NuGet\Install-Package Telegrator
+```
+
+```xml PackageReference
+<PackageReference Include="Telegrator" Version="1.15.8" />
+```
+
+</CodeGroup>
+
+<Note>
+The core package targets .NET Standard 2.0, making it compatible with .NET Framework 4.6.1+, .NET Core 2.0+, and .NET 5.0+.
+</Note>
+
+### Option 2: With Generic Host Support
+
+For production-ready applications with dependency injection, configuration, and logging:
+
+<CodeGroup>
+
+```bash .NET CLI
+dotnet add package Telegrator.Hosting
+```
+
+```bash NuGet CLI
+NuGet\Install-Package Telegrator.Hosting
+```
+
+```xml PackageReference
+<PackageReference Include="Telegrator.Hosting" Version="1.15.8" />
+```
+
+</CodeGroup>
+
+<Note>
+Telegrator.Hosting requires .NET 8.0 or later and automatically includes the core Telegrator package.
+</Note>
+
+### Option 3: With ASP.NET Core & Webhooks
+
+For web applications that use webhooks instead of long polling:
+
+<CodeGroup>
+
+```bash .NET CLI
+dotnet add package Telegrator.Hosting.Web
+```
+
+```bash NuGet CLI
+NuGet\Install-Package Telegrator.Hosting.Web
+```
+
+```xml PackageReference
+<PackageReference Include="Telegrator.Hosting.Web" Version="1.15.8" />
+```
+
+</CodeGroup>
+
+<Note>
+Telegrator.Hosting.Web requires .NET 8.0 or later and includes both Telegrator and Telegrator.Hosting packages.
+</Note>
+
+## Dependencies
+
+Each package has the following key dependencies:
+
+### Telegrator (Core)
+
+- **Telegram.Bot** (v22.6.2) - Official Telegram Bot API client
+- Includes Roslyn-based code generators and analyzers
+
+### Telegrator.Hosting
+
+- **Microsoft.Extensions.Hosting** (v9.0.5) - Generic host implementation
+- **Microsoft.Extensions.Http** (v9.0.5) - HTTP client factory
+- Requires all core Telegrator dependencies
+
+### Telegrator.Hosting.Web
+
+- **Telegram.Bot.AspNetCore** (v22.5.0) - ASP.NET Core integration
+- **Microsoft.AspNetCore.App** (framework reference)
+- Requires all Telegrator.Hosting dependencies
+
+## Verify Installation
+
+After installation, verify that the packages are correctly installed:
+
+<Steps>
+  <Step title="Check project file">
+    Open your `.csproj` file and confirm the PackageReference entries are present:
+    
+    ```xml
+    <ItemGroup>
+      <PackageReference Include="Telegrator" Version="1.15.8" />
+      <!-- Or Telegrator.Hosting or Telegrator.Hosting.Web -->
+    </ItemGroup>
+    ```
+  </Step>
+  
+  <Step title="Restore packages">
+    Restore NuGet packages to download dependencies:
+    
+    ```bash
+    dotnet restore
+    ```
+  </Step>
+  
+  <Step title="Build the project">
+    Build your project to ensure everything compiles:
+    
+    ```bash
+    dotnet build
+    ```
+  </Step>
+</Steps>
+
+## Next Steps
+
+Now that you have Telegrator installed, you can:
+
+<CardGroup cols={2}>
+  <Card title="Quick Start" icon="rocket" href="/quickstart">
+    Create your first bot in minutes
+  </Card>
+  <Card title="Core Concepts" icon="book" href="/core-concepts/architecture">
+    Learn about handlers, filters, and the mediator pattern
+  </Card>
+  <Card title="API Reference" icon="code" href="/api/client/telegrator-client">
+    Explore the complete API documentation
+  </Card>
+  <Card title="Examples" icon="flask" href="https://github.com/Rikitav/Telegrator">
+    View example projects on GitHub
+  </Card>
+</CardGroup>
+
+## Troubleshooting
+
+<AccordionGroup>
+  <Accordion title="Package version conflicts">
+    If you encounter version conflicts with Telegram.Bot or Microsoft.Extensions packages, try:
+    
+    ```bash
+    dotnet list package --include-transitive
+    ```
+    
+    This shows all package versions including transitive dependencies. Update conflicting packages manually in your `.csproj` file.
+  </Accordion>
+  
+  <Accordion title=".NET version compatibility">
+    Ensure your project targets the correct framework:
+    
+    - Core package: .NET Standard 2.0+
+    - Hosting packages: .NET 8.0+
+    
+    Check your `TargetFramework` in the `.csproj` file:
+    
+    ```xml
+    <TargetFramework>net8.0</TargetFramework>
+    ```
+  </Accordion>
+  
+  <Accordion title="Analyzer warnings">
+    Telegrator includes Roslyn analyzers that may show warnings. These help ensure correct usage patterns. To disable specific warnings:
+    
+    ```xml
+    <PropertyGroup>
+      <NoWarn>$(NoWarn);TELEGRATOR001</NoWarn>
+    </PropertyGroup>
+    ```
+  </Accordion>
+</AccordionGroup>
+
+<Tip>
+Having trouble? Check the [GitHub issues](https://github.com/Rikitav/Telegrator/issues) or ask questions in the repository discussions.
+</Tip>

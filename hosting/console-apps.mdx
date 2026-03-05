@@ -1,0 +1,423 @@
+---
+title: Console Applications
+description: Using Telegrator.Hosting with .NET Generic Host and long polling
+---
+
+The `Telegrator.Hosting` package enables you to build Telegram bots as console applications using .NET's Generic Host with long polling for receiving updates.
+
+## Installation
+
+<CodeGroup>
+```bash .NET CLI
+dotnet add package Telegrator.Hosting
+```
+
+```xml PackageReference
+<PackageReference Include="Telegrator.Hosting" Version="*" />
+```
+</CodeGroup>
+
+## Quick Start
+
+<Steps>
+  <Step title="Create the host builder">
+    Use `TelegramBotHost.CreateBuilder()` to create a new host with default services and long polling:
+
+    ```csharp
+    using Telegrator.Hosting;
+
+    var builder = TelegramBotHost.CreateBuilder();
+    ```
+
+    This automatically:
+    - Configures the .NET Generic Host
+    - Registers default Telegrator services
+    - Sets up long polling for receiving updates
+  </Step>
+
+  <Step title="Configure bot token">
+    Add your bot token to configuration. The recommended approach is using `appsettings.json`:
+
+    ```json appsettings.json
+    {
+      "TelegramBotClientOptions": {
+        "Token": "YOUR_BOT_TOKEN_HERE"
+      }
+    }
+    ```
+
+    <Note>
+      For production, store the token in environment variables or a secure configuration provider, not in source control.
+    </Note>
+  </Step>
+
+  <Step title="Register handlers">
+    Use the `Handlers` collection to register your update handlers:
+
+    ```csharp
+    builder.Handlers.AddHandler<StartCommandHandler>();
+    builder.Handlers.AddHandler<MessageHandler>();
+    ```
+  </Step>
+
+  <Step title="Build and run">
+    Build the host and start receiving updates:
+
+    ```csharp
+    var app = builder.Build();
+    await app.StartAsync();
+    ```
+  </Step>
+</Steps>
+
+## Complete Example
+
+```csharp Program.cs
+using Telegrator.Hosting;
+using Telegrator.Sessions;
+using Telegram.Bot.Types;
+using Telegram.Bot;
+
+// Create host builder with default services and long polling
+var builder = TelegramBotHost.CreateBuilder();
+
+// Register handlers
+builder.Handlers.AddHandler<StartCommandHandler>();
+builder.Handlers.AddHandler<EchoMessageHandler>();
+
+// Build and run the host
+var app = builder.Build();
+await app.StartAsync();
+
+// Handler examples
+public class StartCommandHandler : IUpdateHandler
+{
+    public UpdateType AllowedUpdates => UpdateType.Message;
+
+    public async Task HandleUpdateAsync(
+        ITelegramBotClient client,
+        Update update,
+        CancellationToken ct)
+    {
+        if (update.Message?.Text == "/start")
+        {
+            await client.SendMessage(
+                chatId: update.Message.Chat.Id,
+                text: "Welcome! Send me a message.",
+                cancellationToken: ct);
+        }
+    }
+}
+
+public class EchoMessageHandler : IUpdateHandler
+{
+    public UpdateType AllowedUpdates => UpdateType.Message;
+
+    public async Task HandleUpdateAsync(
+        ITelegramBotClient client,
+        Update update,
+        CancellationToken ct)
+    {
+        if (update.Message?.Text != null)
+        {
+            await client.SendMessage(
+                chatId: update.Message.Chat.Id,
+                text: $"You said: {update.Message.Text}",
+                cancellationToken: ct);
+        }
+    }
+}
+```
+
+## Builder Methods
+
+The `TelegramBotHost` class provides several static factory methods:
+
+### CreateBuilder()
+
+Creates a builder with default configuration and services:
+
+```csharp
+public static TelegramBotHostBuilder CreateBuilder()
+```
+
+Automatically:
+- Adds console and debug logging
+- Registers Telegrator core services
+- Configures long polling receiver
+
+### CreateBuilder(settings)
+
+Creates a builder with custom settings:
+
+```csharp
+public static TelegramBotHostBuilder CreateBuilder(
+    TelegramBotHostBuilderSettings? settings)
+```
+
+Example:
+
+```csharp
+var settings = new TelegramBotHostBuilderSettings
+{
+    ApplicationName = "MyTelegramBot",
+    EnvironmentName = "Production",
+    MaximumParallelWorkingHandlers = 10
+};
+
+var builder = TelegramBotHost.CreateBuilder(settings);
+```
+
+### CreateEmptyBuilder()
+
+Creates a builder **without** any default services:
+
+```csharp
+public static TelegramBotHostBuilder CreateEmptyBuilder()
+```
+
+<Warning>
+  Use this only if you need full control over service registration. You'll need to manually register all required services.
+</Warning>
+
+## Configuration
+
+### Required Configuration
+
+The bot token must be configured via `TelegramBotClientOptions`:
+
+<CodeGroup>
+```json appsettings.json
+{
+  "TelegramBotClientOptions": {
+    "Token": "1234567890:ABCdefGHIjklMNOpqrsTUVwxyz"
+  }
+}
+```
+
+```csharp Code
+builder.Services.Configure<TelegramBotClientOptions>(options =>
+{
+    options.Token = "YOUR_BOT_TOKEN";
+});
+```
+</CodeGroup>
+
+### Polling Configuration
+
+Configure long polling behavior via `ReceiverOptions`:
+
+```json appsettings.json
+{
+  "ReceiverOptions": {
+    "Offset": 0,
+    "Limit": 100,
+    "Timeout": 30,
+    "AllowedUpdates": []
+  }
+}
+```
+
+<ParamField path="Offset" type="int" default="0">
+  Identifier of the first update to be returned
+</ParamField>
+
+<ParamField path="Limit" type="int" default="100">
+  Maximum number of updates to be retrieved (1-100)
+</ParamField>
+
+<ParamField path="Timeout" type="int" default="30">
+  Timeout in seconds for long polling
+</ParamField>
+
+<ParamField path="AllowedUpdates" type="string[]">
+  List of update types to receive. Empty array means all types.
+</ParamField>
+
+### Telegrator Options
+
+Configure bot behavior via `TelegratorOptions`:
+
+```csharp
+var settings = new TelegramBotHostBuilderSettings
+{
+    MaximumParallelWorkingHandlers = 5,
+    ExclusiveAwaitingHandlerRouting = true,
+    ExceptIntersectingCommandAliases = true
+};
+```
+
+<ParamField path="MaximumParallelWorkingHandlers" type="int?">
+  Maximum number of handlers that can execute concurrently. `null` = unlimited.
+</ParamField>
+
+<ParamField path="ExclusiveAwaitingHandlerRouting" type="bool" default="false">
+  When `true`, awaiting handlers receive updates exclusively.
+</ParamField>
+
+<ParamField path="ExceptIntersectingCommandAliases" type="bool" default="true">
+  When `true`, throws an exception if command aliases conflict.
+</ParamField>
+
+## Service Registration
+
+The builder exposes an `IServiceCollection` for registering dependencies:
+
+```csharp
+// Register custom services
+builder.Services.AddSingleton<IDatabaseService, DatabaseService>();
+builder.Services.AddHttpClient();
+builder.Services.AddMemoryCache();
+
+// Configure logging
+builder.Logging.AddConsole();
+builder.Logging.SetMinimumLevel(LogLevel.Debug);
+
+// Access configuration
+var token = builder.Configuration["TelegramBotClientOptions:Token"];
+```
+
+## Host Lifetime
+
+The `ITelegramBotHost` interface extends `IHost`:
+
+```csharp
+public interface ITelegramBotHost : IHost, ITelegratorBot
+{
+    IServiceProvider Services { get; }
+    IUpdateRouter UpdateRouter { get; }
+}
+```
+
+### Starting the Host
+
+<CodeGroup>
+```csharp Run Until Stopped
+var app = builder.Build();
+await app.RunAsync(); // Runs until Ctrl+C
+```
+
+```csharp Manual Control
+var app = builder.Build();
+
+await app.StartAsync();
+// Bot is now running...
+
+await app.StopAsync();
+app.Dispose();
+```
+
+```csharp With Cancellation Token
+var cts = new CancellationTokenSource();
+var app = builder.Build();
+
+await app.RunAsync(cts.Token);
+```
+</CodeGroup>
+
+## Extension Methods
+
+### SetBotCommands
+
+Automatically configure the bot's command menu based on registered handlers:
+
+```csharp
+var app = builder.Build();
+app.SetBotCommands(); // Syncs commands with Telegram
+await app.RunAsync();
+```
+
+### AddLoggingAdapter
+
+Integrate Telegrator's internal logging with Microsoft.Extensions.Logging:
+
+```csharp
+var app = builder.Build();
+app.AddLoggingAdapter();
+await app.RunAsync();
+```
+
+## Accessing Services
+
+Retrieve registered services from the host:
+
+```csharp
+var app = builder.Build();
+
+// Get Telegram client
+var client = app.Services.GetRequiredService<ITelegramBotClient>();
+
+// Get update router
+var router = app.UpdateRouter;
+
+// Get custom services
+var database = app.Services.GetRequiredService<IDatabaseService>();
+```
+
+## Best Practices
+
+<AccordionGroup>
+  <Accordion title="Secure Token Storage">
+    Never hardcode tokens in source code. Use environment variables or secure configuration:
+
+    ```bash
+    export TelegramBotClientOptions__Token="YOUR_TOKEN"
+    dotnet run
+    ```
+
+    Or use User Secrets during development:
+
+    ```bash
+    dotnet user-secrets set "TelegramBotClientOptions:Token" "YOUR_TOKEN"
+    ```
+  </Accordion>
+
+  <Accordion title="Graceful Shutdown">
+    Handle cancellation tokens properly to ensure clean shutdown:
+
+    ```csharp
+    var app = builder.Build();
+    
+    var cts = new CancellationTokenSource();
+    Console.CancelKeyPress += (s, e) =>
+    {
+        e.Cancel = true;
+        cts.Cancel();
+    };
+
+    await app.RunAsync(cts.Token);
+    ```
+  </Accordion>
+
+  <Accordion title="Handler Registration Order">
+    Register more specific handlers before generic ones:
+
+    ```csharp
+    builder.Handlers.AddHandler<StartCommandHandler>();  // Specific
+    builder.Handlers.AddHandler<MessageHandler>();       // Generic
+    ```
+  </Accordion>
+
+  <Accordion title="Enable Logging">
+    Configure logging to troubleshoot issues:
+
+    ```csharp
+    builder.Logging.AddConsole();
+    builder.Logging.SetMinimumLevel(LogLevel.Debug);
+    
+    var app = builder.Build();
+    app.AddLoggingAdapter(); // Bridge Telegrator logs
+    ```
+  </Accordion>
+</AccordionGroup>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Handlers" icon="code" href="/handlers/overview">
+    Learn how to create update handlers
+  </Card>
+  <Card title="ASP.NET Core" icon="globe" href="/hosting/aspnet-core">
+    Deploy with webhooks using ASP.NET Core
+  </Card>
+</CardGroup>

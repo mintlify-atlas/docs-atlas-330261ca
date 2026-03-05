@@ -1,0 +1,104 @@
+---
+title: "Introduction"
+description: "A modern reactive framework for Telegram bots in C# with aspect-oriented design, mediator-based dispatching, and flexible architecture."
+---
+
+Telegrator is a next-generation framework for building Telegram bots in C#, inspired by aspect-oriented programming and the mediator pattern. It enables decentralized, easily extensible, and maintainable bot logic without traditional state machines or monolithic handlers.
+
+## Why Telegrator?
+
+Traditional Telegram bot development often leads to tangled switch/case statements, complex state machines, and tightly coupled code. Telegrator solves these problems with a modern, declarative approach.
+
+<CardGroup cols={2}>
+  <Card title="Aspect-Oriented Design" icon="layer-group">
+    Each handler is an independent aspect that can be composed and extended without modifying existing code.
+  </Card>
+  <Card title="Mediator Pattern" icon="rotate">
+    All updates flow through a central mediator that routes them to appropriate handlers based on filters and priorities.
+  </Card>
+  <Card title="Declarative Filters" icon="filter">
+    Specify handler conditions using intuitive attributes instead of imperative if/else chains.
+  </Card>
+  <Card title="Built-in State Management" icon="database">
+    Manage user and chat state without external storage or manual state machines.
+  </Card>
+</CardGroup>
+
+## Quick Example
+
+Here's a minimal bot that responds to the `/start` command in private chats:
+
+```csharp
+using Telegrator;
+using Telegrator.Handlers;
+using Telegrator.Annotations;
+using Telegram.Bot.Types.Enums;
+
+[CommandHandler, CommandAllias("start"), ChatType(ChatType.Private)]
+public class StartHandler : CommandHandler
+{
+    public override async Task<Result> Execute(
+        IAbstractHandlerContainer<Message> container, 
+        CancellationToken cancellation)
+    {
+        await Response("Welcome to the bot!", cancellationToken: cancellation);
+        return Result.Ok();
+    }
+}
+
+// Initialize and start the bot
+var bot = new TelegratorClient("<YOUR_BOT_TOKEN>");
+bot.Handlers.AddHandler<StartHandler>();
+bot.StartReceiving();
+```
+
+No switch statements. No state machine boilerplate. Just clean, declarative handlers.
+
+## Key Features
+
+<AccordionGroup>
+  <Accordion title="Aspect-Oriented Handler Architecture">
+    Handlers are independent "aspects" of your bot that can be added, removed, or modified without affecting other parts of the codebase. Each handler focuses on a single responsibility.
+  </Accordion>
+  
+  <Accordion title="Mediator-Based Dispatching">
+    The `UpdateRouter` acts as a mediator, receiving all Telegram updates and dispatching them to appropriate handlers based on filters, priorities, and execution order.
+  </Accordion>
+  
+  <Accordion title="Declarative Filter Attributes">
+    Use attributes like `[CommandAllias("start")]`, `[TextContains("hello")]`, and `[ChatType(ChatType.Private)]` to specify when handlers should execute.
+  </Accordion>
+  
+  <Accordion title="Built-in State Management">
+    Manage numeric, string, and enum states for users and chats without external databases. State is tracked automatically by the framework.
+  </Accordion>
+  
+  <Accordion title="Concurrency Control">
+    Fine-grained control over handler execution. Limit concurrent handlers globally or per-handler, and await other updates from within a handler.
+  </Accordion>
+  
+  <Accordion title="Extensibility">
+    Create custom filters, state keepers, and aspect processors. The framework provides extension points at every level.
+  </Accordion>
+  
+  <Accordion title="Microsoft.Extensions.Hosting Integration">
+    First-class support for .NET Generic Host, making it easy to integrate with ASP.NET Core applications and background services.
+  </Accordion>
+</AccordionGroup>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Installation" icon="download" href="/installation">
+    Install Telegrator via NuGet and set up your first project
+  </Card>
+  <Card title="Quickstart" icon="rocket" href="/quickstart">
+    Build your first Telegram bot in minutes
+  </Card>
+  <Card title="Core Concepts" icon="book" href="/core-concepts/architecture">
+    Understand the architecture and design principles
+  </Card>
+  <Card title="API Reference" icon="code" href="/api/client/telegrator-client">
+    Explore the complete API documentation
+  </Card>
+</CardGroup>

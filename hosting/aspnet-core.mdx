@@ -1,0 +1,590 @@
+---
+title: ASP.NET Core
+description: Using Telegrator.Hosting.Web with ASP.NET Core and webhooks
+---
+
+The `Telegrator.Hosting.Web` package enables you to build Telegram bots as ASP.NET Core applications with webhook support for receiving updates.
+
+## Installation
+
+<CodeGroup>
+```bash .NET CLI
+dotnet add package Telegrator.Hosting.Web
+```
+
+```xml PackageReference
+<PackageReference Include="Telegrator.Hosting.Web" Version="*" />
+```
+</CodeGroup>
+
+## Quick Start
+
+<Steps>
+  <Step title="Configure webhook options">
+    Create a `TelegramBotWebOptions` instance with your webhook URL:
+
+    ```csharp
+    using Telegrator.Hosting.Web;
+
+    var options = new TelegramBotWebOptions
+    {
+        WebhookUri = "https://yourdomain.com/api/telegram",
+        SecretToken = "your-secret-token"
+    };
+    ```
+
+    <Note>
+      The webhook URL must be HTTPS and publicly accessible. Telegram will send updates to this endpoint.
+    </Note>
+  </Step>
+
+  <Step title="Create the web host builder">
+    Use `TelegramBotWebHost.CreateBuilder()` with your options:
+
+    ```csharp
+    var builder = TelegramBotWebHost.CreateBuilder(options);
+    ```
+
+    This automatically:
+    - Configures ASP.NET Core web application
+    - Registers Telegrator services
+    - Sets up webhook endpoint routing
+  </Step>
+
+  <Step title="Register handlers">
+    Add your update handlers to the `Handlers` collection:
+
+    ```csharp
+    builder.Handlers.AddHandler<StartCommandHandler>();
+    builder.Handlers.AddHandler<MessageHandler>();
+    ```
+  </Step>
+
+  <Step title="Build and run">
+    Build the host and start the web server:
+
+    ```csharp
+    var app = builder.Build();
+    await app.RunAsync();
+    ```
+  </Step>
+</Steps>
+
+## Complete Example
+
+```csharp Program.cs
+using Telegrator.Hosting.Web;
+using Telegrator.Sessions;
+using Telegram.Bot.Types;
+using Telegram.Bot;
+
+// Configure webhook options
+var options = new TelegramBotWebOptions
+{
+    WebhookUri = "https://yourdomain.com/api/telegram",
+    SecretToken = "my-secret-token-123",
+    MaxConnections = 40,
+    DropPendingUpdates = false
+};
+
+// Create web host builder
+var builder = TelegramBotWebHost.CreateBuilder(options);
+
+// Configure bot token
+builder.Configuration["TelegramBotClientOptions:Token"] = 
+    Environment.GetEnvironmentVariable("BOT_TOKEN");
+
+// Register handlers
+builder.Handlers.AddHandler<StartCommandHandler>();
+builder.Handlers.AddHandler<EchoMessageHandler>();
+
+// Add additional endpoints (optional)
+var app = builder.Build();
+
+app.MapGet("/", () => "Bot is running!");
+app.MapGet("/health", () => Results.Ok(new { status = "healthy" }));
+
+// Run the application
+await app.RunAsync();
+
+// Handler examples
+public class StartCommandHandler : IUpdateHandler
+{
+    public UpdateType AllowedUpdates => UpdateType.Message;
+
+    public async Task HandleUpdateAsync(
+        ITelegramBotClient client,
+        Update update,
+        CancellationToken ct)
+    {
+        if (update.Message?.Text == "/start")
+        {
+            await client.SendMessage(
+                chatId: update.Message.Chat.Id,
+                text: "Welcome to the bot!",
+                cancellationToken: ct);
+        }
+    }
+}
+
+public class EchoMessageHandler : IUpdateHandler
+{
+    public UpdateType AllowedUpdates => UpdateType.Message;
+
+    public async Task HandleUpdateAsync(
+        ITelegramBotClient client,
+        Update update,
+        CancellationToken ct)
+    {
+        if (update.Message?.Text != null)
+        {
+            await client.SendMessage(
+                chatId: update.Message.Chat.Id,
+                text: $"Echo: {update.Message.Text}",
+                cancellationToken: ct);
+        }
+    }
+}
+```
+
+## Builder Methods
+
+The `TelegramBotWebHost` class provides several static factory methods:
+
+### CreateBuilder(options)
+
+Creates a standard web application builder with default services:
+
+```csharp
+public static TelegramBotWebHostBuilder CreateBuilder(
+    TelegramBotWebOptions options)
+```
+
+Automatically:
+- Configures ASP.NET Core with default middleware
+- Adds logging providers
+- Registers Telegrator services
+- Sets up webhook receiver
+
+### CreateSlimBuilder(options)
+
+Creates a minimal builder with fewer default services:
+
+```csharp
+public static TelegramBotWebHostBuilder CreateSlimBuilder(
+    TelegramBotWebOptions options)
+```
+
+Use this for:
+- Smaller deployment size
+- Faster startup time
+- When you don't need full ASP.NET Core features
+
+### CreateEmptyBuilder(options)
+
+Creates a builder without any default services:
+
+```csharp
+public static TelegramBotWebHostBuilder CreateEmptyBuilder(
+    TelegramBotWebOptions options)
+```
+
+<Warning>
+  Use this only if you need full control. You'll need to manually register all required services.
+</Warning>
+
+## Webhook Configuration
+
+### TelegramBotWebOptions
+
+Configure webhook behavior when creating the builder:
+
+```csharp
+var options = new TelegramBotWebOptions
+{
+    // Required: HTTPS URL for receiving updates
+    WebhookUri = "https://yourdomain.com/api/telegram",
+    
+    // Optional: Secret token for webhook validation
+    SecretToken = "your-secret-token",
+    
+    // Optional: Maximum concurrent connections (1-100)
+    MaxConnections = 40,
+    
+    // Optional: Drop pending updates on startup
+    DropPendingUpdates = false,
+    
+    // Optional: Web application settings
+    ApplicationName = "MyTelegramBot",
+    EnvironmentName = "Production"
+};
+```
+
+<ParamField path="WebhookUri" type="string" required>
+  HTTPS URL to send updates to. Must be publicly accessible. The path component will be used as the endpoint route.
+</ParamField>
+
+<ParamField path="SecretToken" type="string">
+  Secret token (1-256 characters) sent in `X-Telegram-Bot-Api-Secret-Token` header. Validates requests are from your webhook.
+</ParamField>
+
+<ParamField path="MaxConnections" type="int" default="40">
+  Maximum simultaneous HTTPS connections to the webhook (1-100). Lower values limit load, higher values increase throughput.
+</ParamField>
+
+<ParamField path="DropPendingUpdates" type="bool" default="false">
+  If `true`, drops all pending updates when the webhook is set.
+</ParamField>
+
+### Additional Configuration
+
+Configure bot token and Telegrator options:
+
+<CodeGroup>
+```json appsettings.json
+{
+  "TelegramBotClientOptions": {
+    "Token": "YOUR_BOT_TOKEN"
+  },
+  "TelegratorWebOptions": {
+    "WebhookUri": "https://yourdomain.com/api/telegram",
+    "SecretToken": "your-secret-token",
+    "MaxConnections": 40,
+    "DropPendingUpdates": false
+  }
+}
+```
+
+```csharp Code
+builder.Services.Configure<TelegramBotClientOptions>(options =>
+{
+    options.Token = Environment.GetEnvironmentVariable("BOT_TOKEN");
+});
+
+builder.Services.Configure<TelegratorWebOptions>(options =>
+{
+    options.WebhookUri = "https://yourdomain.com/api/telegram";
+    options.SecretToken = "your-secret-token";
+});
+```
+</CodeGroup>
+
+## How Webhooks Work
+
+When the application starts, the `HostedUpdateWebhooker` service:
+
+1. Extracts the path from your `WebhookUri` (e.g., `/api/telegram`)
+2. Automatically maps a POST endpoint at that path
+3. Calls `SetWebhook` on the Telegram API with your URL
+4. Validates incoming requests using the secret token (if configured)
+5. Deserializes the update and routes it to your handlers
+
+```csharp HostedUpdateWebhooker.cs (simplified)
+private async void StartInternal(CancellationToken cancellationToken)
+{
+    // Extract path from webhook URI
+    string pattern = new UriBuilder(_options.WebhookUri).Path;
+    
+    // Map POST endpoint
+    _botHost.MapPost(pattern, (Delegate)ReceiveUpdate);
+
+    // Register webhook with Telegram
+    await _botClient.SetWebhook(
+        url: _options.WebhookUri,
+        maxConnections: _options.MaxConnections,
+        allowedUpdates: _botHost.UpdateRouter.HandlersProvider.AllowedTypes,
+        dropPendingUpdates: _options.DropPendingUpdates,
+        cancellationToken: cancellationToken);
+}
+```
+
+## ITelegramBotWebHost Interface
+
+The web host implements multiple interfaces:
+
+```csharp
+public interface ITelegramBotWebHost : 
+    ITelegramBotHost,        // Bot functionality
+    IEndpointRouteBuilder,   // ASP.NET Core routing
+    IApplicationBuilder,     // Middleware pipeline
+    IAsyncDisposable         // Async disposal
+{
+}
+```
+
+This allows you to:
+- Access bot services via `ITelegramBotHost`
+- Map additional endpoints via `IEndpointRouteBuilder`
+- Add middleware via `IApplicationBuilder`
+
+## Adding Custom Endpoints
+
+Since the host implements `IEndpointRouteBuilder`, you can add standard ASP.NET Core endpoints:
+
+```csharp
+var app = builder.Build();
+
+// Health check endpoint
+app.MapGet("/health", () => Results.Ok(new 
+{ 
+    status = "healthy",
+    timestamp = DateTime.UtcNow 
+}));
+
+// Status endpoint with dependency injection
+app.MapGet("/status", (ITelegramBotClient client) => 
+{
+    return Results.Ok(new 
+    { 
+        botId = client.BotId,
+        running = true 
+    });
+});
+
+// Protected admin endpoint
+app.MapPost("/admin/broadcast", async (
+    BroadcastRequest request,
+    ITelegramBotClient client) =>
+{
+    // Send message to all users
+    // Implementation here...
+});
+
+await app.RunAsync();
+```
+
+## Adding Middleware
+
+You can add ASP.NET Core middleware to the pipeline:
+
+```csharp
+var app = builder.Build();
+
+// Add CORS
+app.UseCors(policy => policy
+    .AllowAnyOrigin()
+    .AllowAnyMethod()
+    .AllowAnyHeader());
+
+// Add request logging
+app.Use(async (context, next) =>
+{
+    Console.WriteLine($"Request: {context.Request.Method} {context.Request.Path}");
+    await next();
+});
+
+// Add authentication (for custom endpoints)
+app.UseAuthentication();
+app.UseAuthorization();
+
+await app.RunAsync();
+```
+
+## Service Registration
+
+Register services like any ASP.NET Core application:
+
+```csharp
+// Add MVC/Controllers if needed
+builder.Services.AddControllers();
+
+// Add database context
+builder.Services.AddDbContext<BotDbContext>(options =>
+    options.UseSqlServer(builder.Configuration.GetConnectionString("Default")));
+
+// Add custom services
+builder.Services.AddSingleton<IUserRepository, UserRepository>();
+builder.Services.AddScoped<IMessageService, MessageService>();
+
+// Add HTTP clients
+builder.Services.AddHttpClient();
+
+// Add caching
+builder.Services.AddMemoryCache();
+builder.Services.AddDistributedMemoryCache();
+```
+
+## Deployment Considerations
+
+<AccordionGroup>
+  <Accordion title="HTTPS Requirement">
+    Telegram requires webhooks to use HTTPS. Ensure your deployment provides:
+
+    - Valid SSL/TLS certificate (Let's Encrypt, purchased cert, etc.)
+    - Certificate from a trusted CA
+    - TLS 1.2 or higher
+
+    For development, use a tunnel service like ngrok:
+
+    ```bash
+    ngrok http 5000
+    # Use the HTTPS URL provided by ngrok
+    ```
+  </Accordion>
+
+  <Accordion title="Public Accessibility">
+    Your webhook endpoint must be publicly accessible:
+
+    - No firewall blocking Telegram IPs
+    - DNS properly configured
+    - Port 443 or 8443 recommended
+    - No authentication required on the webhook path
+  </Accordion>
+
+  <Accordion title="Secret Token Validation">
+    Always use a secret token in production:
+
+    ```csharp
+    var options = new TelegramBotWebOptions
+    {
+        WebhookUri = "https://yourdomain.com/api/telegram",
+        SecretToken = Environment.GetEnvironmentVariable("WEBHOOK_SECRET")
+    };
+    ```
+
+    The token is sent in the `X-Telegram-Bot-Api-Secret-Token` header and validated automatically.
+  </Accordion>
+
+  <Accordion title="Webhook Registration">
+    The webhook is automatically registered on application startup. To manually check or update:
+
+    ```csharp
+    var client = app.Services.GetRequiredService<ITelegramBotClient>();
+    
+    // Get current webhook info
+    var info = await client.GetWebhookInfo();
+    Console.WriteLine($"Webhook URL: {info.Url}");
+    Console.WriteLine($"Pending updates: {info.PendingUpdateCount}");
+    
+    // Delete webhook (switch to polling)
+    await client.DeleteWebhook();
+    ```
+  </Accordion>
+
+  <Accordion title="Performance Tuning">
+    Adjust `MaxConnections` based on your server capacity:
+
+    ```csharp
+    var options = new TelegramBotWebOptions
+    {
+        WebhookUri = "https://yourdomain.com/api/telegram",
+        MaxConnections = 100  // Higher for better throughput
+    };
+    ```
+
+    Also configure Telegrator options:
+
+    ```csharp
+    var options = new TelegramBotWebOptions
+    {
+        // ... webhook config ...
+        MaximumParallelWorkingHandlers = 10  // Concurrent handler execution
+    };
+    ```
+  </Accordion>
+</AccordionGroup>
+
+## Environment-Specific Configuration
+
+Use different webhook URLs per environment:
+
+```csharp
+var webhookUri = builder.Environment.IsDevelopment()
+    ? "https://dev-tunnel.ngrok.io/api/telegram"
+    : "https://production.yourdomain.com/api/telegram";
+
+var options = new TelegramBotWebOptions
+{
+    WebhookUri = webhookUri,
+    SecretToken = builder.Configuration["Webhook:SecretToken"],
+    DropPendingUpdates = builder.Environment.IsDevelopment()
+};
+
+var builder = TelegramBotWebHost.CreateBuilder(options);
+```
+
+## Logging
+
+Configure logging for webhook diagnostics:
+
+```csharp
+builder.Logging.ClearProviders();
+builder.Logging.AddConsole();
+builder.Logging.AddDebug();
+
+if (builder.Environment.IsProduction())
+{
+    builder.Logging.AddApplicationInsights();
+}
+
+builder.Logging.SetMinimumLevel(LogLevel.Information);
+```
+
+Enable Telegrator internal logging:
+
+```csharp
+var app = builder.Build();
+app.AddLoggingAdapter();
+await app.RunAsync();
+```
+
+## Error Handling
+
+The webhook endpoint automatically handles:
+
+- Secret token validation (401 if mismatch)
+- Malformed JSON (400 bad request)
+- Invalid update objects (400 bad request)
+- Handler exceptions (logged, returns 200 to Telegram)
+
+Add global exception handling middleware:
+
+```csharp
+app.Use(async (context, next) =>
+{
+    try
+    {
+        await next();
+    }
+    catch (Exception ex)
+    {
+        var logger = context.RequestServices
+            .GetRequiredService<ILogger<Program>>();
+        logger.LogError(ex, "Unhandled exception");
+        
+        context.Response.StatusCode = 500;
+        await context.Response.WriteAsJsonAsync(new 
+        { 
+            error = "Internal server error" 
+        });
+    }
+});
+```
+
+## Best Practices
+
+<CardGroup cols={2}>
+  <Card title="Use HTTPS" icon="lock">
+    Always use HTTPS in production. Use ngrok or similar for local development.
+  </Card>
+  <Card title="Validate Requests" icon="shield-check">
+    Always set a `SecretToken` to verify requests come from Telegram.
+  </Card>
+  <Card title="Monitor Webhooks" icon="chart-line">
+    Regularly check webhook status with `GetWebhookInfo()`.
+  </Card>
+  <Card title="Handle Errors" icon="triangle-exclamation">
+    Return 200 OK even on errors to prevent Telegram from retrying.
+  </Card>
+</CardGroup>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Handlers" icon="code" href="/handlers/overview">
+    Learn how to create update handlers
+  </Card>
+  <Card title="Console Apps" icon="terminal" href="/hosting/console-apps">
+    Use long polling for development
+  </Card>
+</CardGroup>

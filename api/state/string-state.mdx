@@ -1,0 +1,321 @@
+---
+title: 'StringState'
+description: 'Manage string-based named states for conversation flows'
+---
+
+## Overview
+
+The `StringState` attribute and keeper provide string-based state management for chat sessions. Use named states to create more readable and maintainable conversation flows with descriptive state names.
+
+## StringStateAttribute
+
+Apply this attribute to handlers to filter by string state values.
+
+### Constructors
+
+<ParamField path="StringStateAttribute(string myState)" type="constructor">
+  Associates the handler with a specific string state using the default sender ID resolver.
+  
+  **Parameters:**
+  - `myState` (string): The specific state name to match
+</ParamField>
+
+<ParamField path="StringStateAttribute(SpecialState specialState)" type="constructor">
+  Associates the handler with a special state mode using the default sender ID resolver.
+  
+  **Parameters:**
+  - `specialState` (SpecialState): Special state mode (`NoState`, `AnyState`)
+</ParamField>
+
+<ParamField path="StringStateAttribute(string myState, IStateKeyResolver<long> keyResolver)" type="constructor">
+  Associates the handler with a specific state using a custom key resolver.
+  
+  **Parameters:**
+  - `myState` (string): The specific state name to match
+  - `keyResolver` (IStateKeyResolver\<long\>): Custom key resolver for state management
+</ParamField>
+
+<ParamField path="StringStateAttribute(SpecialState specialState, IStateKeyResolver<long> keyResolver)" type="constructor">
+  Associates the handler with a special state mode using a custom key resolver.
+  
+  **Parameters:**
+  - `specialState` (SpecialState): Special state mode
+  - `keyResolver` (IStateKeyResolver\<long\>): Custom key resolver
+</ParamField>
+
+### Properties
+
+<ParamField path="DefaultState" type="string">
+  Gets the default state value, which is an empty string (`string.Empty`).
+</ParamField>
+
+## StringStateKeeper
+
+Manages string state storage and transitions.
+
+### Methods
+
+<ParamField path="SetState(Update keySource, string newState)" type="void">
+  Sets the string state for the specified update.
+  
+  **Parameters:**
+  - `keySource` (Update): The update to use as a key source
+  - `newState` (string): The new state name
+</ParamField>
+
+<ParamField path="GetState(Update keySource)" type="string">
+  Gets the current string state for the specified update.
+  
+  **Parameters:**
+  - `keySource` (Update): The update to use as a key source
+  
+  **Returns:** The current state name
+</ParamField>
+
+<ParamField path="TryGetState(Update keySource, out string? state)" type="bool">
+  Attempts to get the state for the specified update.
+  
+  **Parameters:**
+  - `keySource` (Update): The update to use as a key source
+  - `state` (out string?): The state name if found
+  
+  **Returns:** `true` if state exists; otherwise `false`
+</ParamField>
+
+<ParamField path="HasState(Update keySource)" type="bool">
+  Checks whether a state exists for the specified update.
+  
+  **Parameters:**
+  - `keySource` (Update): The update to use as a key source
+  
+  **Returns:** `true` if state exists; otherwise `false`
+</ParamField>
+
+<ParamField path="CreateState(Update keySource)" type="void">
+  Creates a new state for the specified update using the default value (empty string).
+  
+  **Parameters:**
+  - `keySource` (Update): The update to use as a key source
+</ParamField>
+
+<ParamField path="DeleteState(Update keySource)" type="void">
+  Deletes the state for the specified update.
+  
+  **Parameters:**
+  - `keySource` (Update): The update to use as a key source
+</ParamField>
+
+## Extension Methods
+
+Convenience methods available on `IHandlerContainer`:
+
+```csharp
+// Get the state keeper instance
+var keeper = container.StringStateKeeper();
+
+// Create a new state
+container.CreateStringState();
+
+// Set to a specific state name
+container.SetStringState("awaiting_name");
+
+// Delete the state
+container.DeleteStringState();
+```
+
+<Note>
+  String states do not support automatic forward/backward navigation. You must explicitly set state values using `SetStringState()`.
+</Note>
+
+## Usage Example
+
+```csharp
+using Telegrator.Annotations;
+using Telegrator.Annotations.StateKeeping;
+using Telegrator.Handlers.Components;
+using Telegram.Bot;
+using Telegram.Bot.Types;
+
+// Handler for initial state
+[StringState("awaiting_name")]
+[Command("register")]
+public class RegistrationStartHandler : IHandler
+{
+    public async Task<Result> Handle(IHandlerContainer container, CancellationToken cancellationToken)
+    {
+        var bot = container.Client;
+        var chatId = container.HandlingUpdate.Message!.Chat.Id;
+        
+        await bot.SendTextMessageAsync(
+            chatId,
+            "Welcome! Please enter your full name:",
+            cancellationToken: cancellationToken
+        );
+        
+        // Set the next state
+        container.SetStringState("awaiting_email");
+        
+        return Result.Success;
+    }
+}
+
+// Handler for collecting name
+[StringState("awaiting_email")]
+[Message]
+public class CollectNameHandler : IHandler
+{
+    public async Task<Result> Handle(IHandlerContainer container, CancellationToken cancellationToken)
+    {
+        var bot = container.Client;
+        var message = container.HandlingUpdate.Message!;
+        var name = message.Text;
+        
+        // Store name (you would use your own storage)
+        // ...
+        
+        await bot.SendTextMessageAsync(
+            message.Chat.Id,
+            $"Thanks {name}! Now please enter your email:",
+            cancellationToken: cancellationToken
+        );
+        
+        // Move to next state
+        container.SetStringState("awaiting_confirmation");
+        
+        return Result.Success;
+    }
+}
+
+// Handler for collecting email
+[StringState("awaiting_confirmation")]
+[Message]
+public class CollectEmailHandler : IHandler
+{
+    public async Task<Result> Handle(IHandlerContainer container, CancellationToken cancellationToken)
+    {
+        var bot = container.Client;
+        var message = container.HandlingUpdate.Message!;
+        var email = message.Text;
+        
+        await bot.SendTextMessageAsync(
+            message.Chat.Id,
+            "Registration complete! Thank you.",
+            cancellationToken: cancellationToken
+        );
+        
+        // End the flow - delete the state
+        container.DeleteStringState();
+        
+        return Result.Success;
+    }
+}
+
+// Cancel command works at any state
+[StringState(SpecialState.AnyState)]
+[Command("cancel")]
+public class CancelHandler : IHandler
+{
+    public async Task<Result> Handle(IHandlerContainer container, CancellationToken cancellationToken)
+    {
+        var bot = container.Client;
+        var chatId = container.HandlingUpdate.Message!.Chat.Id;
+        
+        await bot.SendTextMessageAsync(
+            chatId,
+            "Registration cancelled.",
+            cancellationToken: cancellationToken
+        );
+        
+        container.DeleteStringState();
+        
+        return Result.Success;
+    }
+}
+```
+
+## Advanced Example: Non-Linear Flow
+
+```csharp
+// Main menu state
+[StringState("main_menu")]
+[Message]
+public class MainMenuHandler : IHandler
+{
+    public async Task<Result> Handle(IHandlerContainer container, CancellationToken cancellationToken)
+    {
+        var bot = container.Client;
+        var message = container.HandlingUpdate.Message!;
+        var choice = message.Text?.ToLower();
+        
+        switch (choice)
+        {
+            case "profile":
+                container.SetStringState("viewing_profile");
+                await bot.SendTextMessageAsync(
+                    message.Chat.Id,
+                    "Here's your profile information...",
+                    cancellationToken: cancellationToken
+                );
+                break;
+                
+            case "settings":
+                container.SetStringState("editing_settings");
+                await bot.SendTextMessageAsync(
+                    message.Chat.Id,
+                    "What would you like to change?",
+                    cancellationToken: cancellationToken
+                );
+                break;
+                
+            default:
+                await bot.SendTextMessageAsync(
+                    message.Chat.Id,
+                    "Please choose: profile or settings",
+                    cancellationToken: cancellationToken
+                );
+                break;
+        }
+        
+        return Result.Success;
+    }
+}
+
+// Both handlers can return to main menu
+[StringState("viewing_profile")]
+[Command("back")]
+public class BackFromProfileHandler : IHandler
+{
+    public async Task<Result> Handle(IHandlerContainer container, CancellationToken cancellationToken)
+    {
+        container.SetStringState("main_menu");
+        // Send main menu...
+        return Result.Success;
+    }
+}
+```
+
+## Key Features
+
+- **Descriptive Names**: Use meaningful state names for better code readability
+- **Flexible Flows**: Easy to implement non-linear conversation flows
+- **Explicit Transitions**: Full control over state changes
+- **No Automatic Navigation**: Must explicitly set each state transition
+
+## When to Use String States
+
+**Use String States when:**
+- You need descriptive, self-documenting state names
+- Your conversation flow is non-linear (branches, loops)
+- States don't follow a sequential order
+- You want maximum flexibility in state transitions
+
+**Use Numeric States when:**
+- You have a simple linear flow
+- States follow a sequential order
+- You want automatic increment/decrement
+
+## See Also
+
+- [NumericState](/api/state/numeric-state) - For sequential state management
+- [EnumState](/api/state/enum-state) - For type-safe state management
+- [State Keepers](/api/state/state-keepers) - Base state keeper architecture

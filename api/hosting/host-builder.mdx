@@ -1,0 +1,291 @@
+---
+title: TelegramBotHostBuilder
+description: Builder class for configuring and creating TelegramBotHost instances
+---
+
+## Overview
+
+The `TelegramBotHostBuilder` class provides a builder pattern for configuring and creating `TelegramBotHost` instances. It wraps the .NET `HostApplicationBuilder` and adds Telegrator-specific functionality.
+
+**Namespace:** `Telegrator.Hosting`
+
+**Implements:** `ITelegramBotHostBuilder`, `ICollectingProvider`
+
+## Properties
+
+### Handlers
+
+```csharp
+IHandlersCollection Handlers { get; }
+```
+
+Gets the collection of registered update handlers. Use this to register handlers for different update types.
+
+**Example:**
+
+```csharp
+builder.Handlers.OnMessage(async (context, ct) => 
+{
+    // Handle message updates
+});
+```
+
+### Services
+
+```csharp
+IServiceCollection Services { get; }
+```
+
+Gets the service collection for dependency injection. Use this to register services that will be available throughout your bot application.
+
+**Example:**
+
+```csharp
+builder.Services.AddSingleton<IMyService, MyService>();
+builder.Services.AddHttpClient();
+```
+
+### Configuration
+
+```csharp
+IConfigurationManager Configuration { get; }
+```
+
+Gets the configuration manager for managing application settings.
+
+**Example:**
+
+```csharp
+builder.Configuration["TelegramBotClientOptions:Token"] = "YOUR_BOT_TOKEN";
+builder.Configuration.AddJsonFile("appsettings.json");
+```
+
+### Logging
+
+```csharp
+ILoggingBuilder Logging { get; }
+```
+
+Gets the logging builder for configuring logging providers.
+
+**Example:**
+
+```csharp
+builder.Logging.AddConsole();
+builder.Logging.SetMinimumLevel(LogLevel.Debug);
+```
+
+### Environment
+
+```csharp
+IHostEnvironment Environment { get; }
+```
+
+Gets information about the hosting environment (Development, Production, etc.).
+
+**Example:**
+
+```csharp
+if (builder.Environment.IsDevelopment())
+{
+    builder.Logging.SetMinimumLevel(LogLevel.Debug);
+}
+```
+
+## Methods
+
+### Build()
+
+```csharp
+public TelegramBotHost Build()
+```
+
+Builds and returns a configured `TelegramBotHost` instance.
+
+**Returns:** A fully configured `TelegramBotHost` ready to start.
+
+**Example:**
+
+```csharp
+var builder = TelegramBotHost.CreateBuilder();
+// Configure builder...
+var host = builder.Build();
+```
+
+## TelegramBotHostBuilderSettings
+
+Configuration options for the host builder.
+
+**Namespace:** `Telegrator.Hosting`
+
+**Inheritance:** Extends `TelegratorOptions`
+
+### Properties
+
+#### DisableAutoConfigure
+
+```csharp
+public bool DisableAutoConfigure { get; set; }
+```
+
+Disables automatic configuration for required `IOptions<T>` instances. When disabled, you must manually configure all required options.
+
+**Default:** `false`
+
+#### DisableDefaults
+
+```csharp
+public bool DisableDefaults { get; set; }
+```
+
+Disables default host configuration.
+
+#### Args
+
+```csharp
+public string[]? Args { get; set; }
+```
+
+Command-line arguments for the application.
+
+#### Configuration
+
+```csharp
+public ConfigurationManager? Configuration { get; set; }
+```
+
+Custom configuration manager instance.
+
+#### EnvironmentName
+
+```csharp
+public string? EnvironmentName { get; set; }
+```
+
+The environment name (e.g., "Development", "Production").
+
+#### ApplicationName
+
+```csharp
+public string? ApplicationName { get; set; }
+```
+
+The application name.
+
+#### ContentRootPath
+
+```csharp
+public string? ContentRootPath { get; set; }
+```
+
+The content root path for the application.
+
+## Complete Example
+
+```csharp
+using Telegrator.Hosting;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
+
+// Create builder with custom settings
+var settings = new TelegramBotHostBuilderSettings
+{
+    EnvironmentName = "Production",
+    ApplicationName = "MyTelegramBot",
+    ContentRootPath = Directory.GetCurrentDirectory()
+};
+
+var builder = TelegramBotHost.CreateBuilder(settings);
+
+// Configure bot token from environment or configuration
+builder.Configuration["TelegramBotClientOptions:Token"] = 
+    Environment.GetEnvironmentVariable("BOT_TOKEN");
+
+// Configure logging
+builder.Logging.AddConsole();
+builder.Logging.SetMinimumLevel(LogLevel.Information);
+
+// Register custom services
+builder.Services.AddSingleton<IDatabaseService, DatabaseService>();
+builder.Services.AddHttpClient();
+
+// Register update handlers
+builder.Handlers.OnMessage(async (context, ct) =>
+{
+    var database = context.Services.GetRequiredService<IDatabaseService>();
+    await database.LogMessage(context.Update.Message);
+    
+    await context.Client.SendMessage(
+        context.Update.Message.Chat.Id,
+        "Message received!"
+    );
+});
+
+builder.Handlers.OnCallbackQuery(async (context, ct) =>
+{
+    await context.Client.AnswerCallbackQuery(
+        context.Update.CallbackQuery.Id,
+        "Processing..."
+    );
+});
+
+// Build the host
+var host = builder.Build();
+
+// Start the bot
+await host.StartAsync();
+
+// Keep running until shutdown
+await Task.Delay(Timeout.Infinite);
+```
+
+## Advanced Configuration
+
+### Manual Configuration (DisableAutoConfigure)
+
+```csharp
+var settings = new TelegramBotHostBuilderSettings
+{
+    DisableAutoConfigure = true
+};
+
+var builder = TelegramBotHost.CreateBuilder(settings);
+
+// Must manually configure all required options
+builder.Services.Configure<TelegramBotClientOptions>(options =>
+{
+    options.Token = "YOUR_BOT_TOKEN";
+});
+
+builder.Services.Configure<ReceiverOptions>(options =>
+{
+    options.AllowedUpdates = new[] 
+    { 
+        UpdateType.Message, 
+        UpdateType.CallbackQuery 
+    };
+});
+
+var host = builder.Build();
+```
+
+### Empty Builder for Full Control
+
+```csharp
+var builder = TelegramBotHost.CreateEmptyBuilder();
+
+// Add only the services you need
+builder.Services.AddTelegramBotHostDefaults();
+builder.Services.AddTelegramReceiver();
+
+// Add custom configuration
+builder.Configuration.AddJsonFile("myconfig.json");
+
+var host = builder.Build();
+```
+
+## See Also
+
+- [TelegramBotHost](/api/hosting/telegram-bot-host)
+- [Extension Methods](/api/hosting/extensions)
+- [Configuration Guide](/guides/configuration)

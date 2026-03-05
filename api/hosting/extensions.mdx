@@ -1,0 +1,276 @@
+---
+title: Extension Methods
+description: Extension methods for configuring Telegram bot hosting and services
+---
+
+## Overview
+
+This page documents extension methods available for configuring `IServiceCollection`, `ITelegramBotHost`, and related types in the Telegrator framework.
+
+## IServiceCollection Extensions
+
+**Namespace:** `Telegrator.Hosting`
+
+### AddTelegramBotHostDefaults()
+
+```csharp
+public static IServiceCollection AddTelegramBotHostDefaults(this IServiceCollection services)
+```
+
+Registers the default services required for `TelegramBotHost` to function properly.
+
+**Registered Services:**
+- Console and Debug logging providers
+- `IUpdateHandlersPool` - Manages handler execution
+- `IAwaitingProvider` - Handles awaiting user responses
+- `IHandlersProvider` - Provides access to registered handlers
+- `IUpdateRouter` - Routes updates to appropriate handlers
+- `ITelegramBotInfo` - Bot information service
+
+**Returns:** The service collection for method chaining.
+
+**Example:**
+
+```csharp
+var builder = TelegramBotHost.CreateEmptyBuilder();
+builder.Services.AddTelegramBotHostDefaults();
+```
+
+### AddTelegramReceiver()
+
+```csharp
+public static IServiceCollection AddTelegramReceiver(this IServiceCollection services)
+```
+
+Registers `ITelegramBotClient` service with long-polling update receiver (`HostedUpdateReceiver`).
+
+**Registered Services:**
+- `ITelegramBotClient` - Telegram Bot API client (via HttpClient factory)
+- `HostedUpdateReceiver` - Background service for receiving updates via long-polling
+
+**Returns:** The service collection for method chaining.
+
+**Example:**
+
+```csharp
+var builder = TelegramBotHost.CreateEmptyBuilder();
+builder.Services.AddTelegramBotHostDefaults();
+builder.Services.AddTelegramReceiver(); // Adds long-polling
+```
+
+### AddTelegramWebhook()
+
+```csharp
+public static IServiceCollection AddTelegramWebhook(this IServiceCollection services)
+```
+
+Registers `ITelegramBotClient` service with webhook update receiver (`HostedUpdateWebhooker`).
+
+**Namespace:** `Telegrator.Hosting.Web`
+
+**Registered Services:**
+- `ITelegramBotClient` - Telegram Bot API client (via HttpClient factory)
+- `HostedUpdateWebhooker` - Background service for setting up webhooks
+
+**Returns:** The service collection for method chaining.
+
+**Example:**
+
+```csharp
+var builder = TelegramBotWebHost.CreateBuilder(webOptions);
+builder.Services.AddTelegramBotHostDefaults();
+builder.Services.AddTelegramWebhook(); // Adds webhook support
+```
+
+### Configure\<TOptions\>()
+
+```csharp
+public static IServiceCollection Configure<TOptions>(
+    this IServiceCollection services, 
+    IConfiguration configuration, 
+    ConfigureOptionsProxy<TOptions> optionsProxy
+) where TOptions : class
+```
+
+Registers a configuration instance using a custom options proxy for advanced configuration scenarios.
+
+<ParamField path="services" type="IServiceCollection">
+  The service collection to add the configuration to.
+</ParamField>
+
+<ParamField path="configuration" type="IConfiguration">
+  The configuration instance to bind against.
+</ParamField>
+
+<ParamField path="optionsProxy" type="ConfigureOptionsProxy<TOptions>">
+  Custom proxy for configuring the options.
+</ParamField>
+
+**Returns:** The service collection for method chaining.
+
+## ITelegramBotHost Extensions
+
+**Namespace:** `Telegrator.Hosting`
+
+### SetBotCommands()
+
+```csharp
+public static ITelegramBotHost SetBotCommands(this ITelegramBotHost botHost)
+```
+
+Automatically configures the bot's command menu based on registered command handlers.
+
+This method scans all registered handlers, extracts commands with their descriptions, and sets them as the bot's command list visible to users in Telegram clients.
+
+**Returns:** The bot host for method chaining.
+
+**Example:**
+
+```csharp
+var builder = TelegramBotHost.CreateBuilder();
+
+builder.Handlers.OnCommand("/start", async (context, ct) =>
+{
+    await context.Client.SendMessage(
+        context.Update.Message.Chat.Id,
+        "Welcome!"
+    );
+});
+
+builder.Handlers.OnCommand("/help", async (context, ct) =>
+{
+    await context.Client.SendMessage(
+        context.Update.Message.Chat.Id,
+        "Available commands..."
+    );
+});
+
+var host = builder.Build();
+host.SetBotCommands(); // Registers /start and /help in Telegram
+
+await host.StartAsync();
+```
+
+### AddLoggingAdapter()
+
+```csharp
+public static ITelegramBotHost AddLoggingAdapter(this ITelegramBotHost host)
+```
+
+Adds a Microsoft.Extensions.Logging adapter to the Telegrator logging system (Alligator).
+
+This integrates Telegrator's internal logging with the standard .NET logging infrastructure, allowing you to see framework logs alongside your application logs.
+
+**Returns:** The bot host for method chaining.
+
+**Example:**
+
+```csharp
+var builder = TelegramBotHost.CreateBuilder();
+builder.Logging.SetMinimumLevel(LogLevel.Debug);
+
+var host = builder.Build();
+host.AddLoggingAdapter(); // Integrates Telegrator logs with .NET logging
+
+await host.StartAsync();
+```
+
+## Complete Example: Custom Service Setup
+
+```csharp
+using Telegrator.Hosting;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
+
+// Create empty builder for full control
+var builder = TelegramBotHost.CreateEmptyBuilder();
+
+// Add Telegrator defaults
+builder.Services.AddTelegramBotHostDefaults();
+
+// Add long-polling receiver
+builder.Services.AddTelegramReceiver();
+
+// Configure custom logging
+builder.Logging.ClearProviders();
+builder.Logging.AddConsole();
+builder.Logging.AddDebug();
+builder.Logging.SetMinimumLevel(LogLevel.Information);
+
+// Add custom services
+builder.Services.AddHttpClient();
+builder.Services.AddSingleton<IUserRepository, UserRepository>();
+builder.Services.AddScoped<ICommandProcessor, CommandProcessor>();
+
+// Configure bot token
+builder.Configuration["TelegramBotClientOptions:Token"] = "YOUR_BOT_TOKEN";
+
+// Register handlers
+builder.Handlers.OnCommand("/start", async (context, ct) =>
+{
+    var userRepo = context.Services.GetRequiredService<IUserRepository>();
+    await userRepo.CreateOrUpdateUser(context.Update.Message.From);
+    
+    await context.Client.SendMessage(
+        context.Update.Message.Chat.Id,
+        "Welcome to the bot!"
+    );
+});
+
+// Build the host
+var host = builder.Build();
+
+// Configure bot commands and logging
+host.SetBotCommands();
+host.AddLoggingAdapter();
+
+// Start receiving updates
+await host.StartAsync();
+
+console.WriteLine("Bot is running. Press Ctrl+C to stop.");
+await Task.Delay(Timeout.Infinite);
+```
+
+## Web Hosting Example
+
+```csharp
+using Telegrator.Hosting.Web;
+using Microsoft.AspNetCore.Builder;
+using Microsoft.Extensions.DependencyInjection;
+
+var webOptions = new TelegramBotWebOptions
+{
+    EnvironmentName = "Production"
+};
+
+var builder = TelegramBotWebHost.CreateBuilder(webOptions);
+
+// Configure bot token and webhook
+builder.Configuration["TelegramBotClientOptions:Token"] = "YOUR_BOT_TOKEN";
+builder.Configuration["TelegratorWebOptions:WebhookUri"] = "https://example.com/webhook";
+builder.Configuration["TelegratorWebOptions:SecretToken"] = "your-secret-token";
+
+// Register handlers
+builder.Handlers.OnMessage(async (context, ct) =>
+{
+    await context.Client.SendMessage(
+        context.Update.Message.Chat.Id,
+        "Hello from webhook!"
+    );
+});
+
+// Build and run
+var app = builder.Build();
+app.SetBotCommands();
+app.AddLoggingAdapter();
+
+await app.StartAsync();
+await Task.Delay(Timeout.Infinite);
+```
+
+## See Also
+
+- [TelegramBotHost](/api/hosting/telegram-bot-host)
+- [TelegramBotHostBuilder](/api/hosting/host-builder)
+- [Handler Registration](/guides/handlers/registration)
+- [Configuration Guide](/guides/configuration)

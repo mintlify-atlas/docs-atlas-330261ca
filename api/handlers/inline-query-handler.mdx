@@ -1,0 +1,378 @@
+---
+title: InlineQueryHandler
+description: Handler for processing inline queries and chosen inline results
+---
+
+## Overview
+
+`InlineQueryHandler` is an abstract base class for handlers that process inline queries. This handler is triggered when users use your bot in inline mode (e.g., `@yourbot search query`).
+
+<Warning>
+  **IMPORTANT**: You can have only ONE instance of `InlineQueryHandler` in your bot.
+</Warning>
+
+## Attribute
+
+```csharp
+[InlineQueryHandler(importance: 0)]
+```
+
+<ParamField path="importance" type="int" default="0">
+  The importance level of the handler. Higher values are executed first.
+</ParamField>
+
+## Base Class
+
+```csharp
+public abstract class InlineQueryHandler : AbstractUpdateHandler<Update>
+```
+
+Inherits from `AbstractUpdateHandler<Update>` with `UpdateType.InlineQuery`.
+
+## Properties
+
+<ParamField path="QueryContainer" type="IHandlerContainer<InlineQuery>">
+  Handler container for the current `InlineQuery` update.
+</ParamField>
+
+<ParamField path="ChosenContainer" type="IHandlerContainer<ChosenInlineResult>">
+  Handler container for the current `ChosenInlineResult` update.
+</ParamField>
+
+<ParamField path="InputQuery" type="InlineQuery">
+  Incoming update of type `InlineQuery`.
+</ParamField>
+
+<ParamField path="InputChosen" type="ChosenInlineResult">
+  Incoming update of type `ChosenInlineResult`.
+</ParamField>
+
+Inherited properties:
+
+<ParamField path="Client" type="ITelegramBotClient">
+  Telegram Bot client associated with the current container.
+</ParamField>
+
+<ParamField path="HandlingUpdate" type="Update">
+  The Telegram update being handled.
+</ParamField>
+
+<ParamField path="ExtraData" type="Dictionary<string, object>">
+  Additional data associated with the handler execution.
+</ParamField>
+
+## Methods
+
+### Execute
+
+```csharp
+public override async Task<Result> Execute(
+    IHandlerContainer<Update> container,
+    CancellationToken cancellation
+)
+```
+
+This method is automatically implemented and routes to either `Requested()` or `Chosen()` based on the update type.
+
+### Requested
+
+```csharp
+public abstract Task<Result> Requested(
+    IHandlerContainer<InlineQuery> container,
+    CancellationToken cancellation
+)
+```
+
+Executes handler logic when a user sends an inline query.
+
+<ParamField path="container" type="IHandlerContainer<InlineQuery>" required>
+  The handler container with inline query data.
+</ParamField>
+
+<ParamField path="cancellation" type="CancellationToken" required>
+  Cancellation token for the operation.
+</ParamField>
+
+**Returns:** `Task<Result>` - A result indicating success, fault, or continuation.
+
+### Chosen
+
+```csharp
+public abstract Task<Result> Chosen(
+    IHandlerContainer<ChosenInlineResult> container,
+    CancellationToken cancellation
+)
+```
+
+Executes handler logic when a user selects an inline query result.
+
+<ParamField path="container" type="IHandlerContainer<ChosenInlineResult>" required>
+  The handler container with chosen result data.
+</ParamField>
+
+<ParamField path="cancellation" type="CancellationToken" required>
+  Cancellation token for the operation.
+</ParamField>
+
+**Returns:** `Task<Result>` - A result indicating success, fault, or continuation.
+
+### Answer
+
+```csharp
+protected async Task Answer(
+    IEnumerable<InlineQueryResult> results,
+    int? cacheTime = null,
+    bool isPersonal = false,
+    string? nextOffset = null,
+    InlineQueryResultsButton? button = null,
+    CancellationToken cancellationToken = default
+)
+```
+
+Answers the inline query with a list of results.
+
+<ParamField path="results" type="IEnumerable<InlineQueryResult>" required>
+  The array of results for the inline query.
+</ParamField>
+
+<ParamField path="cacheTime" type="int">
+  The maximum amount of time in seconds that the result of the inline query may be cached on the server.
+</ParamField>
+
+<ParamField path="isPersonal" type="bool" default="false">
+  Pass True if results may be cached on the server side only for the user that sent the query.
+</ParamField>
+
+<ParamField path="nextOffset" type="string">
+  Pass the offset that a client should send in the next query with the same text to receive more results.
+</ParamField>
+
+<ParamField path="button" type="InlineQueryResultsButton">
+  A button to be shown above inline query results.
+</ParamField>
+
+**Returns:** `Task` - Completes when the answer is sent.
+
+## Examples
+
+### Basic Inline Query Handler
+
+```csharp
+using Telegrator.Handlers;
+using Telegram.Bot.Types.InlineQueryResults;
+using Telegram.Bot.Types.Enums;
+
+[InlineQueryHandler]
+public class MyInlineQueryHandler : InlineQueryHandler
+{
+    public override async Task<Result> Requested(
+        IHandlerContainer<InlineQuery> container,
+        CancellationToken cancellation)
+    {
+        string query = InputQuery.Query;
+
+        var results = new List<InlineQueryResult>
+        {
+            new InlineQueryResultArticle(
+                id: "1",
+                title: $"Search: {query}",
+                inputMessageContent: new InputTextMessageContent($"You searched for: {query}")
+            )
+        };
+
+        await Answer(results);
+        return Result.Ok();
+    }
+
+    public override Task<Result> Chosen(
+        IHandlerContainer<ChosenInlineResult> container,
+        CancellationToken cancellation)
+    {
+        // Log which result was chosen
+        string resultId = InputChosen.ResultId;
+        Console.WriteLine($"User chose result: {resultId}");
+
+        return Task.FromResult(Result.Ok());
+    }
+}
+```
+
+### Search Results with Pagination
+
+```csharp
+[InlineQueryHandler]
+public class SearchInlineHandler : InlineQueryHandler
+{
+    private const int PageSize = 10;
+
+    public override async Task<Result> Requested(
+        IHandlerContainer<InlineQuery> container,
+        CancellationToken cancellation)
+    {
+        string query = InputQuery.Query;
+        string offset = InputQuery.Offset ?? "0";
+
+        if (!int.TryParse(offset, out int pageOffset))
+            pageOffset = 0;
+
+        // Simulate search results
+        var allResults = PerformSearch(query);
+        var pageResults = allResults
+            .Skip(pageOffset)
+            .Take(PageSize)
+            .ToList();
+
+        var inlineResults = pageResults.Select((result, index) =>
+            new InlineQueryResultArticle(
+                id: $"{pageOffset + index}",
+                title: result.Title,
+                inputMessageContent: new InputTextMessageContent(result.Content)
+            )
+        ).Cast<InlineQueryResult>();
+
+        // Calculate next offset
+        string? nextOffset = pageOffset + PageSize < allResults.Count
+            ? (pageOffset + PageSize).ToString()
+            : null;
+
+        await Answer(
+            results: inlineResults,
+            cacheTime: 300,
+            nextOffset: nextOffset
+        );
+
+        return Result.Ok();
+    }
+
+    public override Task<Result> Chosen(
+        IHandlerContainer<ChosenInlineResult> container,
+        CancellationToken cancellation)
+    {
+        // Track analytics
+        return Task.FromResult(Result.Ok());
+    }
+
+    private List<SearchResult> PerformSearch(string query)
+    {
+        // Your search logic here
+        return new List<SearchResult>();
+    }
+}
+```
+
+### Multiple Result Types
+
+```csharp
+[InlineQueryHandler]
+public class MediaInlineHandler : InlineQueryHandler
+{
+    public override async Task<Result> Requested(
+        IHandlerContainer<InlineQuery> container,
+        CancellationToken cancellation)
+    {
+        string query = InputQuery.Query.ToLower();
+
+        var results = new List<InlineQueryResult>();
+
+        // Article result
+        results.Add(new InlineQueryResultArticle(
+            id: "article-1",
+            title: "Text Result",
+            inputMessageContent: new InputTextMessageContent(
+                $"<b>{query}</b>",
+                parseMode: ParseMode.Html
+            )
+        ));
+
+        // Photo result
+        results.Add(new InlineQueryResultPhoto(
+            id: "photo-1",
+            photoUrl: "https://example.com/photo.jpg",
+            thumbnailUrl: "https://example.com/thumb.jpg"
+        ));
+
+        // GIF result
+        results.Add(new InlineQueryResultGif(
+            id: "gif-1",
+            gifUrl: "https://example.com/animation.gif",
+            thumbnailUrl: "https://example.com/thumb.jpg"
+        ));
+
+        await Answer(
+            results: results,
+            isPersonal: true,
+            cacheTime: 60
+        );
+
+        return Result.Ok();
+    }
+
+    public override Task<Result> Chosen(
+        IHandlerContainer<ChosenInlineResult> container,
+        CancellationToken cancellation)
+    {
+        string resultId = InputChosen.ResultId;
+        string query = InputChosen.Query;
+
+        // Log analytics
+        Console.WriteLine($"Chosen: {resultId} from query: {query}");
+
+        return Task.FromResult(Result.Ok());
+    }
+}
+```
+
+### With Results Button
+
+```csharp
+[InlineQueryHandler]
+public class ButtonInlineHandler : InlineQueryHandler
+{
+    public override async Task<Result> Requested(
+        IHandlerContainer<InlineQuery> container,
+        CancellationToken cancellation)
+    {
+        var results = new List<InlineQueryResult>
+        {
+            new InlineQueryResultArticle(
+                id: "1",
+                title: "Click the button below",
+                inputMessageContent: new InputTextMessageContent("Hello!")
+            )
+        };
+
+        var button = new InlineQueryResultsButton(
+            text: "Open Web App",
+            webApp: new WebAppInfo("https://example.com/webapp")
+        );
+
+        await Answer(
+            results: results,
+            button: button
+        );
+
+        return Result.Ok();
+    }
+
+    public override Task<Result> Chosen(
+        IHandlerContainer<ChosenInlineResult> container,
+        CancellationToken cancellation)
+    {
+        return Task.FromResult(Result.Ok());
+    }
+}
+```
+
+## Best Practices
+
+1. **Always answer queries**: Failing to call `Answer()` will leave the user waiting.
+2. **Use caching**: Set appropriate `cacheTime` to reduce server load.
+3. **Implement pagination**: Use `nextOffset` for large result sets.
+4. **Personal results**: Use `isPersonal: true` for user-specific results.
+5. **Quick responses**: Inline queries should return results quickly (< 1 second).
+
+## See Also
+
+- [Result](/api/handlers/result) - Handler result types
+- [InlineQueryResult](https://core.telegram.org/bots/api#inlinequeryresult) - Telegram inline result types
+- [Inline Mode](https://core.telegram.org/bots/inline) - Telegram inline mode documentation

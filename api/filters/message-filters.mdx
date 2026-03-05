@@ -1,0 +1,531 @@
+---
+title: Message Filters
+description: Filter messages based on message properties and content in Telegrator
+---
+
+## Overview
+
+Message filters allow you to filter updates based on various message properties including regular expressions, message entities, dice throws, service messages, and reply chains. These filters work with messages, edited messages, channel posts, and business messages.
+
+## Pattern Matching
+
+### MessageRegex
+
+Filters messages based on regular expression patterns matched against the message text.
+
+<ParamField path="pattern" type="string" required>
+  The regular expression pattern to match.
+</ParamField>
+
+<ParamField path="regexOptions" type="RegexOptions" default="default">
+  The regex options for matching.
+</ParamField>
+
+<ParamField path="regex" type="Regex">
+  A precompiled regular expression (alternative constructor).
+</ParamField>
+
+**Example:**
+
+```csharp
+using System.Text.RegularExpressions;
+
+[MessageRegex(@"\d{3}-\d{3}-\d{4}")]  // Match phone numbers
+public async Task HandlePhoneNumber()
+{
+    // Matches: "Call me at 555-123-4567"
+    // Matches: "My number is 800-555-1234"
+    await Bot.SendTextMessageAsync("I found a phone number!");
+}
+
+[MessageRegex(@"https?://\S+", RegexOptions.IgnoreCase)]
+public async Task HandleUrl()
+{
+    // Matches: "Check out https://example.com"
+    // Matches: "Visit HTTP://EXAMPLE.COM"
+}
+
+[MessageRegex(@"^\d+$")]  // Match messages that are only numbers
+public async Task HandleNumericMessage()
+{
+    // Matches: "12345"
+    // Rejects: "123abc"
+}
+```
+
+**Using Precompiled Regex:**
+
+```csharp
+private static readonly Regex EmailRegex = new(
+    @"^[\w\.-]+@[\w\.-]+\.\w+$",
+    RegexOptions.Compiled | RegexOptions.IgnoreCase
+);
+
+[MessageRegex(typeof(MyClass), nameof(EmailRegex))]
+public async Task HandleEmail()
+{
+    // More efficient for frequently-used patterns
+}
+```
+
+## Message Entities
+
+### MessageHasEntity
+
+Filters messages that contain specific entity types (mentions, links, hashtags, etc.).
+
+<ParamField path="type" type="MessageEntityType" required>
+  The entity type to match.
+</ParamField>
+
+<ParamField path="offset" type="int">
+  The starting position of the entity.
+</ParamField>
+
+<ParamField path="length" type="int?">
+  The length of the entity.
+</ParamField>
+
+<ParamField path="content" type="string">
+  The content that the entity should contain.
+</ParamField>
+
+<ParamField path="stringComparison" type="StringComparison" default="CurrentCulture">
+  The string comparison method for content matching.
+</ParamField>
+
+**Available Entity Types:**
+- `MessageEntityType.Mention` - @username mentions
+- `MessageEntityType.Hashtag` - #hashtags
+- `MessageEntityType.BotCommand` - /commands
+- `MessageEntityType.Url` - URLs
+- `MessageEntityType.Email` - Email addresses
+- `MessageEntityType.PhoneNumber` - Phone numbers
+- `MessageEntityType.Bold` - Bold text
+- `MessageEntityType.Italic` - Italic text
+- `MessageEntityType.Code` - Inline code
+- `MessageEntityType.Pre` - Code blocks
+- And more...
+
+**Example:**
+
+```csharp
+[MessageHasEntity(MessageEntityType.Hashtag)]
+public async Task HandleHashtag()
+{
+    // Matches messages containing any hashtag
+    // Example: "Check out #telegram"
+}
+
+[MessageHasEntity(MessageEntityType.Url)]
+public async Task HandleUrlEntity()
+{
+    // Matches messages containing URLs
+    await Bot.SendTextMessageAsync("I found a link!");
+}
+
+[MessageHasEntity(MessageEntityType.Mention, "@admin")]
+public async Task HandleAdminMention()
+{
+    // Matches messages mentioning @admin specifically
+}
+
+[MessageHasEntity(MessageEntityType.Hashtag, "#important", StringComparison.OrdinalIgnoreCase)]
+public async Task HandleImportantTag()
+{
+    // Matches #important, #IMPORTANT, #Important, etc.
+}
+
+[MessageHasEntity(MessageEntityType.Bold, 0, 5)]
+public async Task HandleBoldStart()
+{
+    // Matches messages starting with exactly 5 bold characters
+}
+```
+
+## Dice and Games
+
+### DiceThrowedAttribute
+
+Filters messages containing dice throws with specific values.
+
+<ParamField path="value" type="int" required>
+  The dice value to match.
+</ParamField>
+
+<ParamField path="diceType" type="DiceType">
+  The type of dice (alternative constructor).
+</ParamField>
+
+**Example:**
+
+```csharp
+[DiceThrowedAttribute(6)]  // Lucky six!
+public async Task HandleLuckySix()
+{
+    await Bot.SendTextMessageAsync("🎉 You rolled a 6!");
+}
+
+[DiceThrowedAttribute(1)]  // Snake eyes
+public async Task HandleSnakeEyes()
+{
+    await Bot.SendTextMessageAsync("😢 You rolled a 1!");
+}
+
+[DiceThrowedAttribute(DiceType.Basketball, 5)]
+public async Task HandleBasketballScore()
+{
+    // Specific dice type and value
+    await Bot.SendTextMessageAsync("🏀 Perfect shot!");
+}
+```
+
+## Message States
+
+### IsAutomaticFormwardMessage
+
+Filters messages that are automatically forwarded from linked channels.
+
+**Example:**
+
+```csharp
+[IsAutomaticFormwardMessage]
+public async Task HandleAutoForward()
+{
+    // Handle automatically forwarded messages from channels
+    await LogChannelPost();
+}
+```
+
+### IsFromOfflineMessage
+
+Filters messages sent while the user was offline.
+
+**Example:**
+
+```csharp
+[IsFromOfflineMessage]
+public async Task HandleOfflineMessage()
+{
+    // Handle messages sent while user was offline
+    await ProcessOfflineMessage();
+}
+```
+
+### IsServiceMessage
+
+Filters service messages (user joined, left, pinned message, etc.).
+
+**Example:**
+
+```csharp
+[IsServiceMessage]
+public async Task HandleServiceMessage()
+{
+    // Handle service messages like:
+    // - User joined group
+    // - User left group
+    // - Chat title changed
+    // - Pinned message
+    await LogServiceAction();
+}
+```
+
+### IsTopicMessage
+
+Filters topic messages in forum chats.
+
+**Example:**
+
+```csharp
+[IsTopicMessage]
+public async Task HandleTopicMessage()
+{
+    // Handle messages in forum topics
+    await ProcessForumMessage();
+}
+
+[IsTopicMessage]
+[ChatIsForum]
+public async Task HandleForumTopic()
+{
+    // Ensure it's both a topic message and in a forum
+}
+```
+
+## Reply Chain Filters
+
+### MeReplied
+
+Filters messages that are replies to the bot's own messages.
+
+**Example:**
+
+```csharp
+[MeReplied]
+public async Task HandleReplyToBot()
+{
+    // User replied to one of the bot's messages
+    await Bot.SendTextMessageAsync("Thanks for replying to me!");
+}
+
+[MeReplied]
+[TextContains("yes")]
+public async Task HandleYesReply()
+{
+    // User replied "yes" to the bot
+    await ProcessConfirmation();
+}
+```
+
+### HasReply
+
+Filters messages that contain a reply, with optional depth checking.
+
+<ParamField path="replyDepth" type="int" default="1">
+  The depth of the reply chain to validate.
+</ParamField>
+
+**Example:**
+
+```csharp
+[HasReply]
+public async Task HandleAnyReply()
+{
+    // Message is a reply to another message
+    await ProcessReply();
+}
+
+[HasReply(2)]
+public async Task HandleDeepReply()
+{
+    // Message is part of a reply chain at least 2 levels deep
+    await ProcessThreadedConversation();
+}
+
+[HasReply]
+[ChatType(ChatType.Group)]
+public async Task HandleGroupReply()
+{
+    // Replies in group chats only
+}
+```
+
+### FromReplyChain
+
+Filters messages from a reply chain, allowing access to previous messages.
+
+<ParamField path="replyDepth" type="int" default="1">
+  The depth of the reply chain to traverse.
+</ParamField>
+
+**Example:**
+
+```csharp
+[FromReplyChain]
+public async Task HandleReplyChain()
+{
+    // Access the entire reply chain
+    await AnalyzeConversationContext();
+}
+
+[FromReplyChain(3)]
+public async Task HandleDeepChain()
+{
+    // Access up to 3 levels of reply chain
+    await ProcessThreadContext();
+}
+```
+
+## Mention Filters
+
+### Mentioned
+
+Filters messages that contain mentions of the bot or specific users.
+
+<ParamField path="mention" type="string">
+  The specific mention text to match (optional).
+</ParamField>
+
+<ParamField path="offset" type="int">
+  The offset position where the mention should occur (optional).
+</ParamField>
+
+**Example:**
+
+```csharp
+[Mentioned]
+public async Task HandleAnyMention()
+{
+    // Any message with a mention
+    await Bot.SendTextMessageAsync("Someone was mentioned!");
+}
+
+[Mentioned("@mybot")]
+public async Task HandleBotMention()
+{
+    // Specifically mentioned @mybot
+    await Bot.SendTextMessageAsync("You mentioned me!");
+}
+
+[Mentioned(offset: 0)]
+public async Task HandleMentionAtStart()
+{
+    // Mention at the beginning of the message
+    // Example: "@user please check this"
+}
+
+[Mentioned("@admin", offset: 0)]
+public async Task HandleAdminMentionFirst()
+{
+    // @admin mentioned at the start
+    await NotifyAdmin();
+}
+```
+
+## Practical Examples
+
+### URL Link Detector
+
+```csharp
+[MessageHasEntity(MessageEntityType.Url)]
+[ChatType(ChatType.Group)]
+public async Task HandleGroupLink()
+{
+    // Detect and process URLs in groups
+    await CheckLinkSafety();
+}
+
+[MessageHasEntity(MessageEntityType.Url)]
+[MessageRegex(@"https?://(?:www\.)?youtube\.com", RegexOptions.IgnoreCase)]
+public async Task HandleYouTubeLink()
+{
+    // Specifically handle YouTube links
+    await GenerateVideoPreview();
+}
+```
+
+### Hashtag Analytics
+
+```csharp
+[MessageHasEntity(MessageEntityType.Hashtag)]
+public async Task TrackHashtag()
+{
+    // Track all hashtags for analytics
+    await IncrementHashtagCount();
+}
+
+[MessageHasEntity(MessageEntityType.Hashtag, "#bug", StringComparison.OrdinalIgnoreCase)]
+public async Task HandleBugReport()
+{
+    // User tagged a bug report
+    await CreateBugTicket();
+}
+```
+
+### Conversation Threading
+
+```csharp
+[MeReplied]
+[TextStartsWith("yes", StringComparison.OrdinalIgnoreCase)]
+public async Task HandleYesConfirmation()
+{
+    // User confirmed by replying "yes" to bot
+    await ProcessConfirmedAction();
+}
+
+[HasReply(2)]
+public async Task HandleNestedConversation()
+{
+    // Deep conversation thread
+    await SummarizeThread();
+}
+```
+
+### Game Handlers
+
+```csharp
+[DiceThrowedAttribute(6)]
+public async Task HandleWin()
+{
+    await Bot.SendTextMessageAsync("🎉 You win!");
+    await AwardPoints(10);
+}
+
+[DiceThrowedAttribute(1)]
+public async Task HandleLose()
+{
+    await Bot.SendTextMessageAsync("💥 Better luck next time!");
+}
+
+[DiceThrowedAttribute(DiceType.Dart, 6)]
+public async Task HandleBullseye()
+{
+    await Bot.SendTextMessageAsync("🎯 Bullseye!");
+}
+```
+
+### Content Moderation
+
+```csharp
+[MessageHasEntity(MessageEntityType.Url)]
+[ChatType(ChatType.Group)]
+[NotFromBot]
+public async Task ModerateLinks()
+{
+    // Check if user is allowed to post links
+    if (!await IsUserTrusted())
+    {
+        await Bot.DeleteMessageAsync(ChatId, MessageId);
+        await Bot.SendTextMessageAsync("Links are not allowed.");
+    }
+}
+
+[MessageRegex(@"(?i)(spam|scam|phishing)")]
+public async Task HandleSuspiciousContent()
+{
+    await FlagMessageForReview();
+}
+```
+
+### Email Extractor
+
+```csharp
+[MessageHasEntity(MessageEntityType.Email)]
+public async Task HandleEmail()
+{
+    // Extract and validate email
+    var email = ExtractEmail(Update.Message);
+    await ProcessEmailSubmission(email);
+}
+
+[MessageRegex(@"^[\w\.-]+@[\w\.-]+\.\w+$")]
+public async Task ValidateEmailFormat()
+{
+    // Message is a single email address
+    await Bot.SendTextMessageAsync("✓ Valid email format");
+}
+```
+
+## Best Practices
+
+1. **Use specific entity types**: Choose the most specific `MessageEntityType` for your needs rather than using regex when possible.
+
+2. **Combine filters for precision**: Mix entity filters with text or chat filters:
+
+```csharp
+[MessageHasEntity(MessageEntityType.Hashtag)]
+[ChatType(ChatType.Group)]
+[NotFromBot]
+public async Task HandleGroupHashtag() { }
+```
+
+3. **Cache compiled regexes**: For frequently-used patterns, use precompiled regexes for better performance.
+
+4. **Handle reply chains carefully**: Reply depth checking can be expensive. Use appropriate depth values.
+
+5. **Consider message types**: Remember that filters work with regular messages, edited messages, channel posts, and business messages.
+
+6. **Test regex patterns**: Use online regex testers to validate your patterns before deploying.
+
+7. **Use service message filters wisely**: Service messages have different structures than regular messages. Handle them appropriately.

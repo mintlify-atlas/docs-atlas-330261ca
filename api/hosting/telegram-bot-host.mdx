@@ -1,0 +1,220 @@
+---
+title: TelegramBotHost
+description: The main host class for running Telegram bots with long-polling
+---
+
+## Overview
+
+The `TelegramBotHost` class represents a hosted Telegram bot application. It wraps the .NET Generic Host and provides integration with the Telegrator framework for handling updates via long-polling.
+
+**Namespace:** `Telegrator.Hosting`
+
+**Inheritance:** `TelegramBotHost` implements `ITelegramBotHost`
+
+## Properties
+
+### Services
+
+```csharp
+IServiceProvider Services { get; }
+```
+
+Gets the service provider for the host, allowing access to registered services.
+
+### UpdateRouter
+
+```csharp
+IUpdateRouter UpdateRouter { get; }
+```
+
+Gets the update router responsible for dispatching incoming Telegram updates to the appropriate handlers.
+
+### Logger
+
+```csharp
+ILogger<TelegramBotHost> Logger { get; }
+```
+
+Gets the logger instance for the host application.
+
+## Static Methods
+
+### CreateBuilder()
+
+```csharp
+public static TelegramBotHostBuilder CreateBuilder()
+```
+
+Creates a new `TelegramBotHostBuilder` with default configuration, services, and long-polling update receiving scheme.
+
+**Returns:** A configured `TelegramBotHostBuilder` instance.
+
+**Example:**
+
+```csharp
+var builder = TelegramBotHost.CreateBuilder();
+builder.Configuration["TelegramBotClientOptions:Token"] = "YOUR_BOT_TOKEN";
+
+var host = builder.Build();
+await host.StartAsync();
+```
+
+### CreateBuilder(TelegramBotHostBuilderSettings)
+
+```csharp
+public static TelegramBotHostBuilder CreateBuilder(TelegramBotHostBuilderSettings? settings)
+```
+
+Creates a new `TelegramBotHostBuilder` with custom settings and long-polling update receiving scheme.
+
+<ParamField path="settings" type="TelegramBotHostBuilderSettings">
+  Configuration settings for the host builder, including environment name, content root path, and other host options.
+</ParamField>
+
+**Returns:** A configured `TelegramBotHostBuilder` instance.
+
+**Example:**
+
+```csharp
+var settings = new TelegramBotHostBuilderSettings
+{
+    EnvironmentName = "Production",
+    ContentRootPath = "/app",
+    DisableAutoConfigure = false
+};
+
+var builder = TelegramBotHost.CreateBuilder(settings);
+var host = builder.Build();
+```
+
+### CreateEmptyBuilder()
+
+```csharp
+public static TelegramBotHostBuilder CreateEmptyBuilder()
+```
+
+Creates a new EMPTY `TelegramBotHostBuilder` WITHOUT any default services or update receiving schemes. Use this when you need full control over service registration.
+
+**Returns:** An empty `TelegramBotHostBuilder` instance.
+
+**Example:**
+
+```csharp
+var builder = TelegramBotHost.CreateEmptyBuilder();
+
+// Manually add required services
+builder.Services.AddTelegramBotHostDefaults();
+builder.Services.AddTelegramReceiver();
+
+var host = builder.Build();
+```
+
+### CreateEmptyBuilder(TelegramBotHostBuilderSettings)
+
+```csharp
+public static TelegramBotHostBuilder CreateEmptyBuilder(TelegramBotHostBuilderSettings? settings)
+```
+
+Creates a new EMPTY `TelegramBotHostBuilder` with custom settings but WITHOUT any default services or update receiving schemes.
+
+<ParamField path="settings" type="TelegramBotHostBuilderSettings">
+  Configuration settings for the host builder.
+</ParamField>
+
+**Returns:** An empty `TelegramBotHostBuilder` instance.
+
+## Instance Methods
+
+### StartAsync()
+
+```csharp
+public async Task StartAsync(CancellationToken cancellationToken = default)
+```
+
+Starts the host and begins receiving updates from Telegram.
+
+<ParamField path="cancellationToken" type="CancellationToken" default="default">
+  Token to cancel the start operation.
+</ParamField>
+
+**Example:**
+
+```csharp
+var host = TelegramBotHost.CreateBuilder().Build();
+await host.StartAsync();
+
+// Keep the application running
+await Task.Delay(Timeout.Infinite);
+```
+
+### StopAsync()
+
+```csharp
+public async Task StopAsync(CancellationToken cancellationToken = default)
+```
+
+Stops the host and halts update receiving.
+
+<ParamField path="cancellationToken" type="CancellationToken" default="default">
+  Token to cancel the stop operation.
+</ParamField>
+
+**Example:**
+
+```csharp
+await host.StopAsync();
+```
+
+### Dispose()
+
+```csharp
+public void Dispose()
+```
+
+Disposes the host and releases all resources.
+
+**Example:**
+
+```csharp
+using var host = TelegramBotHost.CreateBuilder().Build();
+await host.StartAsync();
+// Host will be disposed automatically
+```
+
+## Complete Example
+
+```csharp
+using Telegrator.Hosting;
+using Microsoft.Extensions.DependencyInjection;
+
+// Create and configure the builder
+var builder = TelegramBotHost.CreateBuilder();
+
+// Configure bot token
+builder.Configuration["TelegramBotClientOptions:Token"] = "YOUR_BOT_TOKEN";
+
+// Register handlers
+builder.Handlers.OnMessage(async (context, cancellationToken) =>
+{
+    await context.Client.SendMessage(
+        context.Update.Message.Chat.Id,
+        "Hello from Telegrator!"
+    );
+});
+
+// Add custom services
+builder.Services.AddSingleton<MyCustomService>();
+
+// Build and start the host
+using var host = builder.Build();
+await host.StartAsync();
+
+// Keep running
+await Task.Delay(Timeout.Infinite);
+```
+
+## See Also
+
+- [TelegramBotHostBuilder](/api/hosting/host-builder)
+- [Extension Methods](/api/hosting/extensions)
+- [Handler Registration](/guides/handlers/registration)

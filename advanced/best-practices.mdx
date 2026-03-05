@@ -1,0 +1,686 @@
+---
+title: "Best Practices"
+description: "Architectural guidance and patterns for building robust, maintainable Telegram bots with Telegrator"
+---
+
+## Overview
+
+This guide covers architectural patterns, code organization strategies, and best practices for building production-ready Telegram bots with Telegrator.
+
+## Project Structure
+
+### Recommended Organization
+
+```
+MyTelegramBot/
+├── Handlers/
+│   ├── Commands/
+│   │   ├── StartCommandHandler.cs
+│   │   ├── HelpCommandHandler.cs
+│   │   └── SettingsCommandHandler.cs
+│   ├── Messages/
+│   │   ├── TextMessageHandler.cs
+│   │   └── MediaMessageHandler.cs
+│   ├── Callbacks/
+│   │   ├── ButtonCallbackHandler.cs
+│   │   └── InlineKeyboardHandler.cs
+│   └── Awaiting/
+│       ├── FormInputHandlers.cs
+│       └── ConfirmationHandlers.cs
+├── Filters/
+│   ├── CustomFilterAttributes.cs
+│   └── AuthorizationFilters.cs
+├── StateKeeping/
+│   ├── UserStateKeeper.cs
+│   ├── ConversationStateKeeper.cs
+│   └── StateAttributes.cs
+├── Services/
+│   ├── IUserService.cs
+│   ├── UserService.cs
+│   ├── INotificationService.cs
+│   └── NotificationService.cs
+├── Models/
+│   ├── User.cs
+│   ├── Session.cs
+│   └── BotSettings.cs
+├── Data/
+│   ├── BotDbContext.cs
+│   ├── Repositories/
+│   └── Migrations/
+├── Configuration/
+│   ├── BotConfiguration.cs
+│   └── ErrorHandling/
+│       └── CustomExceptionHandler.cs
+└── Program.cs
+```
+
+## Handler Design Patterns
+
+### Single Responsibility Principle
+
+Each handler should have one clear purpose:
+
+```csharp
+// Good: Focused handler
+[MessageHandler]
+[MessageRegex(@"^\/start$")]
+public class StartCommandHandler : MessageHandler
+{
+    private readonly IUserService _userService;
+
+    public StartCommandHandler(IUserService userService)
+    {
+        _userService = userService;
+    }
+
+    protected override async Task<Result> ExecuteInternal(
+        IHandlerContainer container,
+        CancellationToken cancellationToken)
+    {
+        var userId = container.GetSenderId();
+        await _userService.RegisterUserIfNewAsync(userId, cancellationToken);
+        
+        await container.Client.SendTextMessageAsync(
+            container.GetChatId(),
+            "Welcome! Type /help to see available commands.",
+            cancellationToken: cancellationToken);
+            
+        return Result.Ok();
+    }
+}
+
+// Bad: Handler doing too much
+[MessageHandler]
+public class EverythingHandler : MessageHandler
+{
+    protected override async Task<Result> ExecuteInternal(
+        IHandlerContainer container,
+        CancellationToken cancellationToken)
+    {
+        // Handles commands, messages, user registration, analytics, etc.
+        // Too many responsibilities!
+    }
+}
+```
+
+### Composition Over Inheritance
+
+```csharp
+// Good: Use services for shared functionality
+public interface IAuthorizationService
+{
+    Task<bool> IsAuthorizedAsync(long userId, CancellationToken ct);
+}
+
+[MessageHandler]
+public class AdminCommandHandler : MessageHandler
+{
+    private readonly IAuthorizationService _authService;
+
+    public AdminCommandHandler(IAuthorizationService authService)
+    {
+        _authService = authService;
+    }
+
+    protected override async Task<Result> ExecuteInternal(
+        IHandlerContainer container,
+        CancellationToken cancellationToken)
+    {
+        if (!await _authService.IsAuthorizedAsync(
+            container.GetSenderId(), 
+            cancellationToken))
+        {
+            await container.Client.SendTextMessageAsync(
+                container.GetChatId(),
+                "You don't have permission to use this command.");
+            return Result.Fault();
+        }
+        
+        // Admin command logic
+        return Result.Ok();
+    }
+}
+
+// Avoid: Deep inheritance hierarchies
+// public class BaseHandler : MessageHandler { }
+// public class AuthenticatedHandler : BaseHandler { }
+// public class AdminHandler : AuthenticatedHandler { }
+```
+
+## Dependency Injection
+
+### Proper Service Registration
+
+```csharp
+// Program.cs or Startup.cs
+services.AddSingleton<ITelegramBotClient>(sp =>
+{
+    var configuration = sp.GetRequiredService<IConfiguration>();
+    var token = configuration["Telegram:BotToken"] ??
+        throw new InvalidOperationException("Bot token not configured");
+    return new TelegramBotClient(token);
+});
+
+// Register handlers
+services.AddScoped<StartCommandHandler>();
+services.AddScoped<HelpCommandHandler>();
+
+// Register services
+services.AddScoped<IUserService, UserService>();
+services.AddScoped<INotificationService, NotificationService>();
+
+// Register state keepers as singletons (shared state)
+services.AddSingleton<UserStateKeeper>();
+
+// Register exception handler
+services.AddSingleton<IRouterExceptionHandler, CustomExceptionHandler>();
+
+// Register database context
+services.AddDbContext<BotDbContext>(options =>
+    options.UseSqlServer(configuration.GetConnectionString("BotDatabase")));
+```
+
+### Scoped vs Singleton vs Transient
+
+```csharp
+// Singleton: Shared across all requests (stateful, expensive to create)
+services.AddSingleton<IMemoryCache, MemoryCache>();
+services.AddSingleton<UserStateKeeper>();
+
+// Scoped: One instance per request/update (database contexts)
+services.AddScoped<BotDbContext>();
+services.AddScoped<IUserService, UserService>();
+
+// Transient: New instance every time (lightweight, stateless)
+services.AddTransient<IDateTimeProvider, DateTimeProvider>();
+```
+
+## Configuration Management
+
+### Use Configuration Files
+
+```json
+// appsettings.json
+{
+  "Telegram": {
+    "BotToken": "your-bot-token",
+    "AdminChatId": 123456789,
+    "WebhookUrl": "https://yourdomain.com/webhook"
+  },
+  "Telegrator": {
+    "MaxParallelHandlers": 20,
+    "ExclusiveAwaitingRouting": true
+  },
+  "ConnectionStrings": {
+    "BotDatabase": "Server=localhost;Database=TelegramBot;..."
+  },
+  "Logging": {
+    "LogLevel": {
+      "Default": "Information",
+      "Microsoft": "Warning"
+    }
+  }
+}
+```
+
+```csharp
+// Strongly-typed configuration
+public class TelegramSettings
+{
+    public string BotToken { get; set; } = string.Empty;
+    public long AdminChatId { get; set; }
+    public string? WebhookUrl { get; set; }
+}
+
+public class TelegratorSettings
+{
+    public int MaxParallelHandlers { get; set; } = 10;
+    public bool ExclusiveAwaitingRouting { get; set; } = true;
+}
+
+// Register in Program.cs
+services.Configure<TelegramSettings>(
+    configuration.GetSection("Telegram"));
+services.Configure<TelegratorSettings>(
+    configuration.GetSection("Telegrator"));
+
+// Use in handlers
+public class MyHandler : MessageHandler
+{
+    private readonly TelegramSettings _settings;
+
+    public MyHandler(IOptions<TelegramSettings> options)
+    {
+        _settings = options.Value;
+    }
+}
+```
+
+### Environment-Specific Settings
+
+```json
+// appsettings.Development.json
+{
+  "Telegram": {
+    "BotToken": "dev-bot-token"
+  },
+  "Logging": {
+    "LogLevel": {
+      "Default": "Debug"
+    }
+  }
+}
+
+// appsettings.Production.json
+{
+  "Telegram": {
+    "BotToken": "prod-bot-token"
+  },
+  "Logging": {
+    "LogLevel": {
+      "Default": "Warning"
+    }
+  }
+}
+```
+
+## Error Handling Strategy
+
+### Layered Error Handling
+
+```csharp
+// Global exception handler for unhandled errors
+public class GlobalExceptionHandler : IRouterExceptionHandler
+{
+    private readonly ILogger<GlobalExceptionHandler> _logger;
+
+    public void HandleException(
+        ITelegramBotClient botClient,
+        Exception exception,
+        HandleErrorSource source,
+        CancellationToken cancellationToken)
+    {
+        _logger.LogError(exception, "Unhandled error from {Source}", source);
+        // Alert monitoring system
+    }
+}
+
+// Handler-level error handling for expected errors
+[MessageHandler]
+public class SafeHandler : MessageHandler
+{
+    protected override async Task<Result> ExecuteInternal(
+        IHandlerContainer container,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            await ProcessAsync(container, cancellationToken);
+            return Result.Ok();
+        }
+        catch (ValidationException ex)
+        {
+            // Handle expected validation errors
+            await container.Client.SendTextMessageAsync(
+                container.GetChatId(),
+                $"Invalid input: {ex.Message}");
+            return Result.Ok(); // Don't propagate
+        }
+        // Let unexpected errors propagate to global handler
+    }
+}
+```
+
+## State Management Best Practices
+
+### Use Enums for Finite State Machines
+
+```csharp
+public enum RegistrationState
+{
+    Start,
+    EnteringName,
+    EnteringEmail,
+    EnteringPhone,
+    Confirmation,
+    Complete
+}
+
+[AttributeUsage(AttributeTargets.Class | AttributeTargets.Method)]
+public class RegistrationStateAttribute : StateKeeperAttributeBase
+{
+    public static readonly EnumStateKeeper<RegistrationState> Shared = new();
+    public RegistrationState ExpectedState { get; }
+
+    public RegistrationStateAttribute(RegistrationState expectedState)
+        : base(typeof(EnumStateKeeper<RegistrationState>))
+    {
+        ExpectedState = expectedState;
+    }
+
+    public override bool CanPass(FilterExecutionContext<Update> context)
+    {
+        if (!Shared.TryGetState(context.Update, out var state))
+            return ExpectedState == RegistrationState.Start;
+        return state == ExpectedState;
+    }
+}
+```
+
+### Clean Up State
+
+```csharp
+[MessageHandler]
+[RegistrationState(RegistrationState.Complete)]
+public class CompleteRegistrationHandler : MessageHandler
+{
+    protected override async Task<Result> ExecuteInternal(
+        IHandlerContainer container,
+        CancellationToken cancellationToken)
+    {
+        // Process registration completion
+        await FinalizeRegistrationAsync(container, cancellationToken);
+        
+        // Clean up state
+        RegistrationStateAttribute.Shared.DeleteState(container.HandlingUpdate);
+        
+        await container.Client.SendTextMessageAsync(
+            container.GetChatId(),
+            "Registration complete!");
+            
+        return Result.Ok();
+    }
+}
+```
+
+## Testing
+
+### Unit Testing Handlers
+
+```csharp
+public class StartCommandHandlerTests
+{
+    private readonly Mock<IUserService> _userServiceMock;
+    private readonly Mock<ITelegramBotClient> _botClientMock;
+    private readonly StartCommandHandler _handler;
+
+    public StartCommandHandlerTests()
+    {
+        _userServiceMock = new Mock<IUserService>();
+        _botClientMock = new Mock<ITelegramBotClient>();
+        _handler = new StartCommandHandler(_userServiceMock.Object);
+    }
+
+    [Fact]
+    public async Task ExecuteInternal_RegistersNewUser()
+    {
+        // Arrange
+        var userId = 12345L;
+        var chatId = 67890L;
+        var message = new Message { From = new User { Id = userId }, Chat = new Chat { Id = chatId } };
+        var update = new Update { Message = message };
+        
+        var containerMock = new Mock<IHandlerContainer>();
+        containerMock.Setup(c => c.GetSenderId()).Returns(userId);
+        containerMock.Setup(c => c.GetChatId()).Returns(chatId);
+        containerMock.Setup(c => c.Client).Returns(_botClientMock.Object);
+        containerMock.Setup(c => c.HandlingUpdate).Returns(update);
+        containerMock.Setup(c => c.GetMessage()).Returns(message);
+
+        // Act
+        var result = await _handler.ExecuteInternal(
+            containerMock.Object,
+            CancellationToken.None);
+
+        // Assert
+        Assert.True(result.Positive);
+        _userServiceMock.Verify(
+            s => s.RegisterUserIfNewAsync(userId, It.IsAny<CancellationToken>()),
+            Times.Once);
+        _botClientMock.Verify(
+            b => b.SendTextMessageAsync(
+                It.IsAny<ChatId>(),
+                It.IsAny<string>(),
+                It.IsAny<int?>(),
+                It.IsAny<ParseMode?>(),
+                It.IsAny<IEnumerable<MessageEntity>>(),
+                It.IsAny<bool?>(),
+                It.IsAny<bool?>(),
+                It.IsAny<int?>(),
+                It.IsAny<bool?>(),
+                It.IsAny<IReplyMarkup>(),
+                It.IsAny<CancellationToken>()),
+            Times.Once);
+    }
+}
+```
+
+### Integration Testing
+
+```csharp
+public class BotIntegrationTests : IClassFixture<WebApplicationFactory<Program>>
+{
+    private readonly WebApplicationFactory<Program> _factory;
+
+    public BotIntegrationTests(WebApplicationFactory<Program> factory)
+    {
+        _factory = factory;
+    }
+
+    [Fact]
+    public async Task Webhook_ProcessesUpdate_Successfully()
+    {
+        // Arrange
+        var client = _factory.CreateClient();
+        var update = new Update { /* test update data */ };
+        var content = new StringContent(
+            JsonSerializer.Serialize(update),
+            Encoding.UTF8,
+            "application/json");
+
+        // Act
+        var response = await client.PostAsync("/webhook", content);
+
+        // Assert
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+    }
+}
+```
+
+## Security Best Practices
+
+### Validate Input
+
+```csharp
+[MessageHandler]
+public class UserInputHandler : MessageHandler
+{
+    protected override async Task<Result> ExecuteInternal(
+        IHandlerContainer container,
+        CancellationToken cancellationToken)
+    {
+        var input = container.GetMessage().Text;
+        
+        // Validate and sanitize input
+        if (string.IsNullOrWhiteSpace(input) || input.Length > 1000)
+        {
+            await container.Client.SendTextMessageAsync(
+                container.GetChatId(),
+                "Invalid input. Please provide text between 1-1000 characters.");
+            return Result.Ok();
+        }
+        
+        // Sanitize HTML/special characters if displaying to users
+        var sanitized = System.Net.WebUtility.HtmlEncode(input);
+        
+        return Result.Ok();
+    }
+}
+```
+
+### Protect Sensitive Data
+
+```csharp
+// Never log sensitive information
+_logger.LogInformation(
+    "User {UserId} executed command", // OK
+    userId);
+
+// Don't log passwords, tokens, personal data
+// _logger.LogInformation("User entered password: {Password}", password); // BAD!
+
+// Use User Secrets for development
+// dotnet user-secrets set "Telegram:BotToken" "your-token"
+
+// Use environment variables or Azure Key Vault in production
+var botToken = Environment.GetEnvironmentVariable("TELEGRAM_BOT_TOKEN") ??
+    configuration["Telegram:BotToken"];
+```
+
+### Rate Limiting
+
+```csharp
+public class RateLimitingService
+{
+    private readonly Dictionary<long, Queue<DateTime>> _requestHistory = new();
+    private readonly int _maxRequestsPerMinute = 20;
+
+    public bool IsRateLimited(long userId)
+    {
+        if (!_requestHistory.ContainsKey(userId))
+            _requestHistory[userId] = new Queue<DateTime>();
+
+        var history = _requestHistory[userId];
+        var cutoff = DateTime.UtcNow.AddMinutes(-1);
+
+        // Remove old requests
+        while (history.Count > 0 && history.Peek() < cutoff)
+            history.Dequeue();
+
+        if (history.Count >= _maxRequestsPerMinute)
+            return true;
+
+        history.Enqueue(DateTime.UtcNow);
+        return false;
+    }
+}
+```
+
+## Logging Best Practices
+
+### Structured Logging
+
+```csharp
+[MessageHandler]
+public class WellLoggedHandler : MessageHandler
+{
+    private readonly ILogger<WellLoggedHandler> _logger;
+
+    protected override async Task<Result> ExecuteInternal(
+        IHandlerContainer container,
+        CancellationToken cancellationToken)
+    {
+        var userId = container.GetSenderId();
+        var chatId = container.GetChatId();
+        
+        using (_logger.BeginScope(new Dictionary<string, object>
+        {
+            ["UserId"] = userId,
+            ["ChatId"] = chatId,
+            ["UpdateId"] = container.HandlingUpdate.Id
+        }))
+        {
+            _logger.LogInformation("Processing message from user {UserId}", userId);
+            
+            try
+            {
+                await ProcessMessageAsync(container, cancellationToken);
+                _logger.LogInformation("Message processed successfully");
+                return Result.Ok();
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Failed to process message");
+                throw;
+            }
+        }
+    }
+}
+```
+
+## Performance Checklist
+
+<Tip>
+  **Use async/await consistently**: Never block with `.Result` or `.Wait()`.
+</Tip>
+
+<Tip>
+  **Set appropriate concurrency limits**: Based on your bot's workload and available resources.
+</Tip>
+
+<Tip>
+  **Cache frequently accessed data**: Reduce database load and improve response times.
+</Tip>
+
+<Tip>
+  **Use appropriate service lifetimes**: Singleton for stateful/expensive, Scoped for request-bound, Transient for lightweight.
+</Tip>
+
+<Warning>
+  **Monitor memory usage**: Implement state cleanup to prevent memory leaks.
+</Warning>
+
+<Note>
+  **Profile your bot**: Use Application Insights, ELK stack, or similar tools to identify bottlenecks.
+</Note>
+
+## Deployment Best Practices
+
+### Health Checks
+
+```csharp
+services.AddHealthChecks()
+    .AddDbContextCheck<BotDbContext>()
+    .AddCheck("telegram_api", () =>
+    {
+        // Check if Telegram API is reachable
+        return HealthCheckResult.Healthy();
+    });
+
+app.MapHealthChecks("/health");
+```
+
+### Graceful Shutdown
+
+```csharp
+var cts = new CancellationTokenSource();
+Console.CancelKeyPress += (sender, e) =>
+{
+    e.Cancel = true;
+    cts.Cancel();
+};
+
+var options = new TelegratorOptions
+{
+    GlobalCancellationToken = cts.Token
+};
+```
+
+### Monitoring and Alerts
+
+```csharp
+// Use Application Insights
+services.AddApplicationInsightsTelemetry();
+
+// Custom metrics
+public class MetricsService
+{
+    private readonly TelemetryClient _telemetry;
+
+    public void TrackHandlerExecution(string handlerName, long duration)
+    {
+        _telemetry.TrackMetric("HandlerExecutionTime", duration, 
+            new Dictionary<string, string> { ["Handler"] = handlerName });
+    }
+}
+```

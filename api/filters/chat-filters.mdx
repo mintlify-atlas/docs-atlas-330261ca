@@ -1,0 +1,409 @@
+---
+title: Chat Filters
+description: Filter messages based on chat properties in Telegrator
+---
+
+## Overview
+
+Chat filters allow you to route messages based on properties of the chat where the message was sent. These filters help you create chat-specific handlers for different chat types, specific chats, or chat characteristics.
+
+## Chat Type
+
+### ChatType
+
+Filters messages sent in chats of a specific type.
+
+<ParamField path="type" type="ChatType">
+  The specific chat type to match.
+</ParamField>
+
+<ParamField path="flags" type="ChatTypeFlags">
+  Multiple chat types using flags (alternative constructor).
+</ParamField>
+
+**Available Chat Types:**
+- `ChatType.Private` - Direct messages with users
+- `ChatType.Group` - Regular groups
+- `ChatType.Supergroup` - Supergroups
+- `ChatType.Channel` - Channels
+
+**Example:**
+
+```csharp
+[CommandHandler("start")]
+[ChatType(ChatType.Private)]
+public async Task HandlePrivateStart()
+{
+    // Only executes in private chats
+    await Bot.SendTextMessageAsync("Welcome to private chat!");
+}
+
+[CommandHandler("stats")]
+[ChatType(ChatType.Group)]
+public async Task HandleGroupStats()
+{
+    // Only executes in groups
+    await Bot.SendTextMessageAsync("Group statistics...");
+}
+
+[CommandHandler("broadcast")]
+[ChatType(ChatType.Channel)]
+public async Task HandleChannelBroadcast()
+{
+    // Only executes in channels
+}
+```
+
+**Using Flags for Multiple Types:**
+
+```csharp
+[CommandHandler("help")]
+[ChatType(ChatTypeFlags.Group | ChatTypeFlags.Supergroup)]
+public async Task HandleGroupHelp()
+{
+    // Executes in both regular groups and supergroups
+}
+```
+
+## Chat Identification
+
+### ChatId
+
+Filters messages sent in a specific chat by its ID.
+
+<ParamField path="id" type="long" required>
+  The chat ID to match.
+</ParamField>
+
+**Example:**
+
+```csharp
+[ChatId(-1001234567890)]
+public async Task HandleSpecificGroup()
+{
+    // Only executes in the chat with this specific ID
+    await Bot.SendTextMessageAsync("This is our main group!");
+}
+
+[CommandHandler("admin")]
+[ChatId(-1001234567890)]
+public async Task HandleAdminInMainGroup()
+{
+    // Admin command only works in specific group
+}
+```
+
+**Finding Chat IDs:**
+
+```csharp
+public async Task LogChatId(Update update)
+{
+    var chatId = update.Message?.Chat.Id;
+    Console.WriteLine($"Chat ID: {chatId}");
+    // Use this ID in your ChatId filters
+}
+```
+
+### ChatUsername
+
+Filters messages based on the chat's username.
+
+<ParamField path="userName" type="string" required>
+  The chat username to match (without @).
+</ParamField>
+
+<ParamField path="comparison" type="StringComparison" default="InvariantCulture">
+  The string comparison method.
+</ParamField>
+
+**Example:**
+
+```csharp
+[ChatUsername("myofficialgroup")]
+public async Task HandleOfficialGroup()
+{
+    // Only executes in @myofficialgroup
+}
+
+[ChatUsername("support", StringComparison.OrdinalIgnoreCase)]
+public async Task HandleSupportChat()
+{
+    // Matches @support, @Support, @SUPPORT, etc.
+}
+```
+
+## Chat Properties
+
+### ChatTitle
+
+Filters messages based on the chat's title.
+
+<ParamField path="title" type="string" required>
+  The chat title to match.
+</ParamField>
+
+<ParamField path="comparison" type="StringComparison" default="InvariantCulture">
+  The string comparison method.
+</ParamField>
+
+**Example:**
+
+```csharp
+[ChatTitle("Development Team")]
+public async Task HandleDevTeam()
+{
+    // Only executes in chats titled "Development Team"
+}
+
+[ChatTitle("support", StringComparison.OrdinalIgnoreCase)]
+public async Task HandleSupportTitle()
+{
+    // Matches chats with "support", "Support", "SUPPORT", etc. in title
+}
+```
+
+**Note:** Chat titles can be changed by administrators, so this filter is less reliable than ChatId for identifying specific chats.
+
+### ChatName
+
+Filters messages based on the chat's name (first name and optionally last name for private chats).
+
+<ParamField path="firstName" type="string" required>
+  The first name to match.
+</ParamField>
+
+<ParamField path="lastName" type="string">
+  The last name to match (optional).
+</ParamField>
+
+<ParamField path="comparison" type="StringComparison" default="InvariantCulture">
+  The string comparison method.
+</ParamField>
+
+**Example:**
+
+```csharp
+[ChatName("John", "Doe")]
+public async Task HandleJohnDoe()
+{
+    // Matches private chats with user "John Doe"
+}
+
+[ChatName("Support")]
+public async Task HandleSupportName()
+{
+    // Matches chats with first name "Support"
+}
+
+[ChatName("Alice", null, StringComparison.OrdinalIgnoreCase)]
+public async Task HandleAlice()
+{
+    // Matches "Alice", "alice", "ALICE", etc.
+}
+```
+
+### ChatIsForum
+
+Filters messages sent in forum chats (supergroups with topics enabled).
+
+**Example:**
+
+```csharp
+[ChatIsForum]
+public async Task HandleForumMessage()
+{
+    // Only executes in forum chats
+    await Bot.SendTextMessageAsync("This is a forum!");
+}
+
+[CommandHandler("topic")]
+[ChatIsForum]
+public async Task HandleTopicCommand()
+{
+    // Topic-related command only available in forums
+}
+```
+
+## Practical Examples
+
+### Environment-Specific Chats
+
+```csharp
+[ChatId(-1001111111111)]  // Production chat
+[IsReleaseEnvironment]
+public async Task HandleProductionAlerts()
+{
+    // Production alerts only in production chat
+}
+
+[ChatId(-1002222222222)]  // Testing chat
+[IsDebugEnvironment]
+public async Task HandleTestAlerts()
+{
+    // Test alerts only in test chat
+}
+```
+
+### Multi-Chat Bot
+
+```csharp
+[CommandHandler("start")]
+[ChatType(ChatType.Private)]
+public async Task HandlePrivateStart()
+{
+    await Bot.SendTextMessageAsync(
+        "Welcome! Use /help to see available commands."
+    );
+}
+
+[CommandHandler("start")]
+[ChatType(ChatType.Group)]
+public async Task HandleGroupStart()
+{
+    await Bot.SendTextMessageAsync(
+        "Hello everyone! I'm ready to help this group."
+    );
+}
+
+[CommandHandler("start")]
+[ChatType(ChatType.Channel)]
+public async Task HandleChannelStart()
+{
+    await Bot.SendTextMessageAsync(
+        "Bot activated for this channel."
+    );
+}
+```
+
+### Admin Panel in Specific Group
+
+```csharp
+[CommandHandler("stats")]
+[ChatId(-1001234567890)]  // Admin group ID
+[FromUserId(123456)]      // Admin user ID
+public async Task ShowDetailedStats()
+{
+    // Detailed stats only in admin group, only for admin
+    await SendStatistics();
+}
+
+[CommandHandler("ban")]
+[ChatId(-1001234567890)]
+[FromUserId(123456)]
+public async Task HandleBanCommand()
+{
+    // Ban command only works in admin group
+}
+```
+
+### Forum-Specific Features
+
+```csharp
+[CommandHandler("newtopic")]
+[ChatIsForum]
+public async Task CreateNewTopic()
+{
+    // Create topic only in forums
+    await Bot.CreateForumTopic(ChatId, "New Topic");
+}
+
+[TextContains("thread")]
+[ChatIsForum]
+public async Task HandleThreadMention()
+{
+    // React to thread mentions in forums
+}
+```
+
+### Official Groups Verification
+
+```csharp
+private readonly HashSet<long> officialGroupIds = new()
+{
+    -1001234567890,
+    -1009876543210,
+    -1005555555555
+};
+
+[CommandHandler("verify")]
+public async Task HandleVerify()
+{
+    var chatId = Update.Message.Chat.Id;
+    
+    if (officialGroupIds.Contains(chatId))
+    {
+        await Bot.SendTextMessageAsync("✓ This is an official group");
+    }
+    else
+    {
+        await Bot.SendTextMessageAsync("⚠ This is not an official group");
+    }
+}
+
+// Or use multiple filters:
+[CommandHandler("official")]
+[ChatId(-1001234567890)]
+public async Task HandleOfficialGroup1() 
+{
+    await Bot.SendTextMessageAsync("Official group verified!");
+}
+```
+
+### Combining Chat and User Filters
+
+```csharp
+[ChatType(ChatType.Group)]
+[FromPremiumUser]
+public async Task HandlePremiumUserInGroup()
+{
+    // Special features for premium users in groups
+}
+
+[ChatIsForum]
+[NotFromBot]
+public async Task HandleHumanForumPost()
+{
+    // Only process human messages in forums
+}
+```
+
+## Best Practices
+
+1. **Use ChatId for specific chats**: When you need to target a specific chat, prefer `[ChatId]` over `[ChatTitle]` or `[ChatUsername]` as it's more reliable.
+
+2. **Handle multiple chat types gracefully**: Create separate handlers for different chat types rather than using complex branching logic.
+
+3. **Combine with permission checks**: When filtering by chat, also consider filtering by user permissions:
+
+```csharp
+[ChatId(-1001234567890)]
+[FromUserId(123456)]  // Only specific admin
+public async Task HandleSensitiveCommand() { }
+```
+
+4. **Log chat information during development**: Log chat IDs and properties to help configure your filters:
+
+```csharp
+public async Task LogChatInfo(Update update)
+{
+    var chat = update.Message?.Chat;
+    Console.WriteLine($"Chat ID: {chat.Id}");
+    Console.WriteLine($"Chat Type: {chat.Type}");
+    Console.WriteLine($"Chat Title: {chat.Title}");
+    Console.WriteLine($"Chat Username: {chat.Username}");
+}
+```
+
+5. **Consider forum topics**: When working with forums, remember that messages can belong to different topics within the same chat.
+
+## Chat Type Flags
+
+When using `ChatTypeFlags`, you can combine multiple types:
+
+```csharp
+// Accept both group types
+ChatTypeFlags.Group | ChatTypeFlags.Supergroup
+
+// Accept all except private
+ChatTypeFlags.Group | ChatTypeFlags.Supergroup | ChatTypeFlags.Channel
+```

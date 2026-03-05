@@ -1,0 +1,306 @@
+---
+title: ITelegramBotInfo & TelegramBotInfo
+description: Bot information and metadata interfaces
+---
+
+## Overview
+
+The `ITelegramBotInfo` interface and `TelegramBotInfo` implementation provide access to bot metadata and user information retrieved from the Telegram API.
+
+## ITelegramBotInfo Interface
+
+Interface for providing bot information and metadata.
+
+```csharp
+public interface ITelegramBotInfo
+```
+
+**Namespace:** `Telegrator.Configuration`
+
+### Properties
+
+<ResponseField name="User" type="Telegram.Bot.Types.User">
+  Gets the `User` object representing the bot. This contains information such as:
+  - `Id` - The bot's unique identifier
+  - `Username` - The bot's username (without the @ symbol)
+  - `FirstName` - The bot's display name
+  - `IsBot` - Always `true` for bots
+  - `CanJoinGroups` - Whether the bot can be added to groups
+  - `CanReadAllGroupMessages` - Whether the bot can read all messages in groups
+  - `SupportsInlineQueries` - Whether the bot supports inline queries
+</ResponseField>
+
+## TelegramBotInfo Class
+
+Implementation of `ITelegramBotInfo` that provides bot information.
+
+```csharp
+public class TelegramBotInfo : ITelegramBotInfo
+```
+
+**Namespace:** `Telegrator`
+
+**Implements:** `ITelegramBotInfo`
+
+### Constructor
+
+```csharp
+public TelegramBotInfo(User user)
+```
+
+<ParamField path="user" type="Telegram.Bot.Types.User" required>
+  The `User` object containing bot information.
+</ParamField>
+
+### Properties
+
+<ResponseField name="User" type="Telegram.Bot.Types.User">
+  Gets the user information for the bot.
+</ResponseField>
+
+## Usage Examples
+
+### Accessing Bot Information
+
+```csharp
+using Telegrator;
+using System;
+
+var bot = new TelegratorClient("YOUR_BOT_TOKEN");
+
+// Access bot information
+var botInfo = bot.BotInfo;
+var user = botInfo.User;
+
+Console.WriteLine($"Bot ID: {user.Id}");
+Console.WriteLine($"Username: @{user.Username}");
+Console.WriteLine($"Display Name: {user.FirstName}");
+Console.WriteLine($"Can Join Groups: {user.CanJoinGroups}");
+Console.WriteLine($"Can Read All Messages: {user.CanReadAllGroupMessages}");
+Console.WriteLine($"Supports Inline: {user.SupportsInlineQueries}");
+```
+
+### Using Bot Info in Handlers
+
+```csharp
+using Telegrator.Handlers;
+using Telegrator.Annotations;
+using Telegram.Bot.Types;
+
+[CommandHandler]
+[CommandAllias("info")]
+public class BotInfoHandler : CommandHandler
+{
+    public override async Task Execute(
+        IAbstractHandlerContainer<Message> container,
+        CancellationToken cancellation)
+    {
+        var botInfo = container.Client.BotInfo;
+        var user = botInfo.User;
+        
+        var infoMessage = $"""
+        Bot Information:
+        ━━━━━━━━━━━━━━━━
+        Name: {user.FirstName}
+        Username: @{user.Username}
+        ID: {user.Id}
+        Can Join Groups: {(user.CanJoinGroups == true ? "Yes" : "No")}
+        Inline Support: {(user.SupportsInlineQueries == true ? "Yes" : "No")}
+        """;
+        
+        await Reply(infoMessage, cancellationToken: cancellation);
+    }
+}
+```
+
+### Checking Bot Capabilities
+
+```csharp
+using Telegrator;
+using System;
+
+var bot = new TelegratorClient("YOUR_BOT_TOKEN");
+var user = bot.BotInfo.User;
+
+// Check if bot can be added to groups
+if (user.CanJoinGroups == true)
+{
+    Console.WriteLine("This bot can be added to groups.");
+}
+
+// Check if bot can read all group messages
+if (user.CanReadAllGroupMessages == true)
+{
+    Console.WriteLine("This bot has privacy mode disabled.");
+}
+else
+{
+    Console.WriteLine("This bot has privacy mode enabled (only sees commands and mentions).");
+}
+
+// Check inline support
+if (user.SupportsInlineQueries == true)
+{
+    Console.WriteLine("This bot supports inline queries.");
+}
+```
+
+### Logging Bot Startup Information
+
+```csharp
+using Telegrator;
+using Microsoft.Extensions.Logging;
+
+var bot = new TelegratorClient("YOUR_BOT_TOKEN");
+var logger = LoggerFactory.Create(builder => builder.AddConsole())
+    .CreateLogger<Program>();
+
+var user = bot.BotInfo.User;
+
+logger.LogInformation(
+    "Bot started - ID: {BotId}, Username: @{Username}, Name: {Name}",
+    user.Id,
+    user.Username,
+    user.FirstName
+);
+
+bot.Handlers.CollectHandlersDomainWide();
+bot.StartReceiving();
+```
+
+### Validating Bot Configuration
+
+```csharp
+using Telegrator;
+using System;
+
+var bot = new TelegratorClient("YOUR_BOT_TOKEN");
+var user = bot.BotInfo.User;
+
+// Validate bot is configured correctly
+if (string.IsNullOrEmpty(user.Username))
+{
+    throw new InvalidOperationException("Bot must have a username.");
+}
+
+if (user.IsBot != true)
+{
+    throw new InvalidOperationException("Token does not belong to a bot account.");
+}
+
+Console.WriteLine($"Bot validation successful: @{user.Username}");
+
+// Add handlers based on bot capabilities
+if (user.SupportsInlineQueries == true)
+{
+    bot.Handlers.AddHandler<InlineQueryHandler>();
+    Console.WriteLine("Inline query handlers registered.");
+}
+
+if (user.CanJoinGroups == true)
+{
+    bot.Handlers.AddHandler<GroupManagementHandler>();
+    Console.WriteLine("Group management handlers registered.");
+}
+
+bot.StartReceiving();
+```
+
+### Custom Bot Info Display
+
+```csharp
+using Telegrator.Handlers;
+using Telegrator.Annotations;
+using Telegram.Bot.Types;
+using Telegram.Bot.Types.Enums;
+
+[CommandHandler]
+[CommandAllias("about")]
+public class AboutBotHandler : CommandHandler
+{
+    public override async Task Execute(
+        IAbstractHandlerContainer<Message> container,
+        CancellationToken cancellation)
+    {
+        var botInfo = container.Client.BotInfo;
+        var user = botInfo.User;
+        
+        var aboutText = $"""
+        <b>About This Bot</b>
+        
+        <b>Name:</b> {user.FirstName}
+        <b>Username:</b> @{user.Username}
+        <b>Bot ID:</b> <code>{user.Id}</code>
+        
+        <b>Features:</b>
+        {(user.CanJoinGroups == true ? "✅" : "❌")} Can join groups
+        {(user.CanReadAllGroupMessages == true ? "✅" : "❌")} Reads all messages
+        {(user.SupportsInlineQueries == true ? "✅" : "❌")} Inline queries
+        
+        Built with Telegrator Framework
+        """;
+        
+        await Reply(
+            aboutText,
+            parseMode: ParseMode.Html,
+            cancellationToken: cancellation
+        );
+    }
+}
+```
+
+## User Object Properties
+
+The `User` object contains the following properties:
+
+<ResponseField name="Id" type="long">
+  Unique identifier for this bot.
+</ResponseField>
+
+<ResponseField name="IsBot" type="bool">
+  Always `true` for bots.
+</ResponseField>
+
+<ResponseField name="FirstName" type="string">
+  Bot's display name.
+</ResponseField>
+
+<ResponseField name="Username" type="string?">
+  Bot's username (without @ symbol).
+</ResponseField>
+
+<ResponseField name="LanguageCode" type="string?">
+  IETF language tag of the bot's language.
+</ResponseField>
+
+<ResponseField name="CanJoinGroups" type="bool?">
+  `true` if the bot can be invited to groups.
+</ResponseField>
+
+<ResponseField name="CanReadAllGroupMessages" type="bool?">
+  `true` if privacy mode is disabled for the bot.
+</ResponseField>
+
+<ResponseField name="SupportsInlineQueries" type="bool?">
+  `true` if the bot supports inline queries.
+</ResponseField>
+
+## Notes
+
+<Note>
+  The bot information is automatically retrieved when the `TelegratorClient` is instantiated. This is done by calling the `GetMe` API method.
+</Note>
+
+<Warning>
+  Creating a `TelegratorClient` instance will make an API call to retrieve bot information. Ensure you have a valid token and internet connection.
+</Warning>
+
+<Tip>
+  The `BotInfo.User` object is the same type used throughout the Telegram.Bot library, making it easy to work with in any context.
+</Tip>
+
+## See Also
+
+- [TelegratorClient](/api/client/telegrator-client) - Main client class
+- [TelegratorOptions](/api/client/telegrator-options) - Configuration options
+- [Telegram.Bot.Types.User](https://telegrambots.github.io/book/1/types.html#user) - Official User type documentation

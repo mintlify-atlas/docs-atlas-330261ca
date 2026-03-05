@@ -1,0 +1,238 @@
+---
+title: MessageHandler
+description: Handler for processing message updates from Telegram users
+---
+
+## Overview
+
+`MessageHandler` is an abstract base class for handlers that process message updates. This handler is triggered when users send messages in chats and provides convenient methods for sending replies and responses.
+
+## Attribute
+
+```csharp
+[MessageHandler(importance: 0)]
+```
+
+<ParamField path="importance" type="int" default="0">
+  The importance level of the handler. Higher values are executed first.
+</ParamField>
+
+## Base Class
+
+```csharp
+public abstract class MessageHandler : AbstractUpdateHandler<Message>
+```
+
+Inherits from `AbstractUpdateHandler<Message>` with `UpdateType.Message`.
+
+## Properties
+
+The following properties are inherited from `AbstractUpdateHandler<Message>`:
+
+<ParamField path="Container" type="IHandlerContainer<Message>">
+  Handler container for the current update.
+</ParamField>
+
+<ParamField path="Client" type="ITelegramBotClient">
+  Telegram Bot client associated with the current container.
+</ParamField>
+
+<ParamField path="Input" type="Message">
+  Incoming message update.
+</ParamField>
+
+<ParamField path="HandlingUpdate" type="Update">
+  The Telegram update being handled.
+</ParamField>
+
+<ParamField path="ExtraData" type="Dictionary<string, object>">
+  Additional data associated with the handler execution.
+</ParamField>
+
+<ParamField path="CompletedFilters" type="CompletedFiltersList">
+  List of successfully passed filters.
+</ParamField>
+
+<ParamField path="AwaitingProvider" type="IAwaitingProvider">
+  Provider for awaiting asynchronous operations.
+</ParamField>
+
+## Methods
+
+### Execute
+
+```csharp
+public abstract Task<Result> Execute(
+    IHandlerContainer<Message> container,
+    CancellationToken cancellation
+)
+```
+
+Abstract method to implement your message handling logic.
+
+<ParamField path="container" type="IHandlerContainer<Message>" required>
+  The handler container with message update data.
+</ParamField>
+
+<ParamField path="cancellation" type="CancellationToken" required>
+  Cancellation token for the operation.
+</ParamField>
+
+**Returns:** `Task<Result>` - A result indicating success, fault, or continuation.
+
+### Reply
+
+```csharp
+protected async Task<Message> Reply(
+    string text,
+    ParseMode parseMode = ParseMode.None,
+    ReplyMarkup? replyMarkup = null,
+    LinkPreviewOptions? linkPreviewOptions = null,
+    int? messageThreadId = null,
+    IEnumerable<MessageEntity>? entities = null,
+    bool disableNotification = false,
+    bool protectContent = false,
+    string? messageEffectId = null,
+    string? businessConnectionId = null,
+    bool allowPaidBroadcast = false,
+    int? directMessageTopicId = null,
+    SuggestedPostParameters? suggestedPostParameters = null,
+    CancellationToken cancellationToken = default
+)
+```
+
+Sends a reply message to the current message.
+
+<ParamField path="text" type="string" required>
+  The text of the message to send.
+</ParamField>
+
+<ParamField path="parseMode" type="ParseMode" default="ParseMode.None">
+  The parse mode for the message text (None, Markdown, HTML).
+</ParamField>
+
+<ParamField path="replyMarkup" type="ReplyMarkup">
+  The reply markup for the message (keyboard, inline keyboard, etc.).
+</ParamField>
+
+<ParamField path="linkPreviewOptions" type="LinkPreviewOptions">
+  Options for link preview generation.
+</ParamField>
+
+<ParamField path="messageThreadId" type="int">
+  The thread ID for forum topics.
+</ParamField>
+
+<ParamField path="disableNotification" type="bool" default="false">
+  Whether to disable notification for the message.
+</ParamField>
+
+<ParamField path="protectContent" type="bool" default="false">
+  Whether to protect the message content from forwarding.
+</ParamField>
+
+**Returns:** `Task<Message>` - The sent message.
+
+### Response
+
+```csharp
+protected async Task<Message> Response(
+    string text,
+    ParseMode parseMode = ParseMode.None,
+    ReplyParameters? replyParameters = null,
+    ReplyMarkup? replyMarkup = null,
+    LinkPreviewOptions? linkPreviewOptions = null,
+    int? messageThreadId = null,
+    IEnumerable<MessageEntity>? entities = null,
+    bool disableNotification = false,
+    bool protectContent = false,
+    string? messageEffectId = null,
+    string? businessConnectionId = null,
+    bool allowPaidBroadcast = false,
+    int? directMessageTopicId = null,
+    SuggestedPostParameters? suggestedPostParameters = null,
+    CancellationToken cancellationToken = default
+)
+```
+
+Sends a response message to the current chat (without replying to the specific message).
+
+<ParamField path="text" type="string" required>
+  The text of the message to send.
+</ParamField>
+
+<ParamField path="parseMode" type="ParseMode" default="ParseMode.None">
+  The parse mode for the message text.
+</ParamField>
+
+<ParamField path="replyParameters" type="ReplyParameters">
+  The reply parameters for the message.
+</ParamField>
+
+<ParamField path="replyMarkup" type="ReplyMarkup">
+  The reply markup for the message.
+</ParamField>
+
+**Returns:** `Task<Message>` - The sent message.
+
+## Example
+
+```csharp
+using Telegrator.Handlers;
+using Telegrator.Filters;
+using Telegram.Bot.Types.Enums;
+
+[MessageHandler]
+[TextFilter("hello")]
+public class HelloHandler : MessageHandler
+{
+    public override async Task<Result> Execute(
+        IHandlerContainer<Message> container,
+        CancellationToken cancellation)
+    {
+        // Reply to the user's message
+        await Reply(
+            "Hello! How can I help you today?",
+            parseMode: ParseMode.Html
+        );
+
+        return Result.Ok();
+    }
+}
+```
+
+## BranchingMessageHandler
+
+`BranchingMessageHandler` is a variant that supports multiple handler methods in a single class, each with its own filters.
+
+```csharp
+public abstract class BranchingMessageHandler : BranchingUpdateHandler<Message>
+```
+
+### Example
+
+```csharp
+[MessageHandler]
+public class MultiMessageHandler : BranchingMessageHandler
+{
+    [TextFilter("start")]
+    public async Task<Result> HandleStart()
+    {
+        await Reply("Welcome! Let's get started.");
+        return Result.Ok();
+    }
+
+    [TextFilter("help")]
+    public async Task<Result> HandleHelp()
+    {
+        await Reply("Here are the available commands...");
+        return Result.Ok();
+    }
+}
+```
+
+## See Also
+
+- [CommandHandler](/api/handlers/command-handler) - For handling command messages
+- [Result](/api/handlers/result) - Handler result types
+- [Filters](/api/filters/overview) - Filter attributes for message handling

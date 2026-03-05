@@ -1,0 +1,229 @@
+---
+title: CommandHandler
+description: Handler for processing bot command messages (messages starting with '/')
+---
+
+## Overview
+
+`CommandHandler` is an abstract base class for handlers that process command messages. This handler is triggered when users send bot commands (messages starting with '/') and provides functionality to extract and parse command arguments.
+
+## Attribute
+
+```csharp
+[CommandHandler(importance: 1)]
+```
+
+<ParamField path="importance" type="int" default="1">
+  The importance level of the handler. Default is 1 (higher than MessageHandler).
+</ParamField>
+
+## Base Class
+
+```csharp
+public abstract class CommandHandler : MessageHandler
+```
+
+Inherits from `MessageHandler`, which provides all message handling capabilities.
+
+## Properties
+
+### ReceivedCommand
+
+```csharp
+protected string ReceivedCommand { get; }
+```
+
+Gets the command that was extracted from the message (without the '/' prefix and bot username).
+
+For example, if the message is `/start@mybot`, `ReceivedCommand` will be `"start"`.
+
+### Arguments
+
+```csharp
+protected string[] Arguments { get; }
+```
+
+Gets the command arguments as an array of strings, split by spaces.
+
+For example, if the message is `/search foo bar`, `Arguments` will be `["foo", "bar"]`.
+
+### ArgumentsString
+
+```csharp
+protected string ArgumentsString { get; }
+```
+
+Gets the arguments string (everything after the command).
+
+For example, if the message is `/search hello world`, `ArgumentsString` will be `"hello world"`.
+
+## Methods
+
+### Execute
+
+```csharp
+public abstract Task<Result> Execute(
+    IHandlerContainer<Message> container,
+    CancellationToken cancellation
+)
+```
+
+Abstract method to implement your command handling logic. Inherited from `MessageHandler`.
+
+<ParamField path="container" type="IHandlerContainer<Message>" required>
+  The handler container with message update data.
+</ParamField>
+
+<ParamField path="cancellation" type="CancellationToken" required>
+  Cancellation token for the operation.
+</ParamField>
+
+**Returns:** `Task<Result>` - A result indicating success, fault, or continuation.
+
+All methods from `MessageHandler` are available:
+- `Reply()` - Send a reply to the command message
+- `Response()` - Send a response to the chat
+
+## How Commands are Recognized
+
+The `CommandHandlerAttribute` checks if:
+1. The message contains entities
+2. The first entity is of type `BotCommand`
+3. The command starts at position 0 in the message
+4. The command is extracted (removing '/' and optional '@botname')
+
+## Examples
+
+### Basic Command Handler
+
+```csharp
+using Telegrator.Handlers;
+using Telegrator.Filters;
+using Telegram.Bot.Types.Enums;
+
+[CommandHandler]
+[CommandFilter("start")]
+public class StartCommandHandler : CommandHandler
+{
+    public override async Task<Result> Execute(
+        IHandlerContainer<Message> container,
+        CancellationToken cancellation)
+    {
+        await Reply(
+            $"Welcome! You executed the '{ReceivedCommand}' command.",
+            parseMode: ParseMode.Html
+        );
+
+        return Result.Ok();
+    }
+}
+```
+
+### Command with Arguments
+
+```csharp
+[CommandHandler]
+[CommandFilter("search")]
+public class SearchCommandHandler : CommandHandler
+{
+    public override async Task<Result> Execute(
+        IHandlerContainer<Message> container,
+        CancellationToken cancellation)
+    {
+        if (Arguments.Length == 0)
+        {
+            await Reply("Please provide a search query.");
+            return Result.Ok();
+        }
+
+        string query = ArgumentsString;
+        await Reply($"Searching for: {query}");
+
+        // Perform search logic here...
+
+        return Result.Ok();
+    }
+}
+```
+
+### Multiple Commands in One Handler
+
+```csharp
+[CommandHandler]
+public class MultiCommandHandler : BranchingCommandHandler
+{
+    [CommandFilter("help")]
+    public async Task<Result> HandleHelp()
+    {
+        await Reply("Available commands: /help, /about, /settings");
+        return Result.Ok();
+    }
+
+    [CommandFilter("about")]
+    public async Task<Result> HandleAbout()
+    {
+        await Reply("This is my awesome bot!");
+        return Result.Ok();
+    }
+
+    [CommandFilter("settings")]
+    public async Task<Result> HandleSettings()
+    {
+        if (Arguments.Length > 0)
+        {
+            await Reply($"Updating setting: {Arguments[0]}");
+        }
+        else
+        {
+            await Reply("Current settings...");
+        }
+        return Result.Ok();
+    }
+}
+```
+
+### Parsing Structured Arguments
+
+```csharp
+[CommandHandler]
+[CommandFilter("set")]
+public class SetCommandHandler : CommandHandler
+{
+    public override async Task<Result> Execute(
+        IHandlerContainer<Message> container,
+        CancellationToken cancellation)
+    {
+        // Example: /set key value
+        if (Arguments.Length < 2)
+        {
+            await Reply(
+                "Usage: /set <key> <value>",
+                parseMode: ParseMode.Html
+            );
+            return Result.Ok();
+        }
+
+        string key = Arguments[0];
+        string value = string.Join(" ", Arguments.Skip(1));
+
+        await Reply($"Set {key} = {value}");
+        return Result.Ok();
+    }
+}
+```
+
+## BranchingCommandHandler
+
+`BranchingCommandHandler` extends `BranchingMessageHandler` with command parsing capabilities.
+
+```csharp
+public abstract class BranchingCommandHandler : BranchingMessageHandler
+```
+
+All properties (`ReceivedCommand`, `Arguments`, `ArgumentsString`) are available in branching handlers.
+
+## See Also
+
+- [MessageHandler](/api/handlers/message-handler) - Base handler for messages
+- [CommandFilter](/api/filters/command-filter) - Filter for specific commands
+- [Result](/api/handlers/result) - Handler result types

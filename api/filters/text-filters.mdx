@@ -1,0 +1,356 @@
+---
+title: Text Filters
+description: Filter messages based on text content in Telegrator
+---
+
+## Overview
+
+Text filters allow you to match and validate message text content. These filters work with any message that contains text, including regular messages, captions, and edited messages.
+
+## Text Pattern Matching
+
+### TextStartsWith
+
+Filters messages where the text starts with specific content.
+
+<ParamField path="content" type="string" required>
+  The string that the message text should start with.
+</ParamField>
+
+<ParamField path="comparison" type="StringComparison" default="InvariantCulture">
+  The string comparison type to use for the check.
+</ParamField>
+
+**Example:**
+
+```csharp
+[TextStartsWith("Hello")]
+public async Task HandleGreeting()
+{
+    // Matches: "Hello there!"
+    // Matches: "Hello world"
+    // Rejects: "Hi there"
+    // Rejects: "Say hello"
+}
+
+[TextStartsWith("URGENT", StringComparison.OrdinalIgnoreCase)]
+public async Task HandleUrgent()
+{
+    // Matches: "URGENT: System down"
+    // Matches: "urgent: please help"
+    // Matches: "Urgent message"
+}
+```
+
+### TextEndsWith
+
+Filters messages where the text ends with specific content.
+
+<ParamField path="content" type="string" required>
+  The string that the message text should end with.
+</ParamField>
+
+<ParamField path="comparison" type="StringComparison" default="InvariantCulture">
+  The string comparison type to use for the check.
+</ParamField>
+
+**Example:**
+
+```csharp
+[TextEndsWith("?")]
+public async Task HandleQuestion()
+{
+    // Matches: "How are you?"
+    // Matches: "What time is it?"
+    // Rejects: "I have a question"
+}
+
+[TextEndsWith("thanks", StringComparison.OrdinalIgnoreCase)]
+public async Task HandleThanks()
+{
+    // Matches: "Thanks for the help, thanks"
+    // Matches: "THANKS"
+    // Rejects: "Thank you"
+}
+```
+
+### TextContains
+
+Filters messages where the text contains specific content.
+
+<ParamField path="content" type="string" required>
+  The string that the message text should contain.
+</ParamField>
+
+<ParamField path="comparison" type="StringComparison" default="InvariantCulture">
+  The string comparison type to use for the check.
+</ParamField>
+
+**Example:**
+
+```csharp
+[TextContains("telegram")]
+public async Task HandleTelegramMention()
+{
+    // Matches: "I love telegram!"
+    // Matches: "Check out this telegram bot"
+    // Rejects: "I love this app"
+}
+
+[TextContains("error", StringComparison.OrdinalIgnoreCase)]
+public async Task HandleError()
+{
+    // Matches: "Error occurred"
+    // Matches: "ERROR: Failed"
+    // Matches: "There was an error"
+}
+```
+
+### TextEquals
+
+Filters messages where the text exactly equals specific content.
+
+<ParamField path="content" type="string" required>
+  The string that the message text should equal.
+</ParamField>
+
+<ParamField path="comparison" type="StringComparison" default="InvariantCulture">
+  The string comparison type to use for the check.
+</ParamField>
+
+**Example:**
+
+```csharp
+[TextEquals("yes")]
+public async Task HandleYes()
+{
+    // Matches: "yes"
+    // Rejects: "Yes" (case-sensitive)
+    // Rejects: "yes please"
+}
+
+[TextEquals("STOP", StringComparison.OrdinalIgnoreCase)]
+public async Task HandleStop()
+{
+    // Matches: "STOP"
+    // Matches: "stop"
+    // Matches: "Stop"
+    // Rejects: "Please stop"
+}
+```
+
+## Text Validation
+
+### HasText
+
+Filters messages that contain any non-empty text.
+
+**Example:**
+
+```csharp
+[HasText]
+public async Task HandleTextMessage()
+{
+    // Matches: Any message with text content
+    // Rejects: Messages without text (photos, stickers, etc.)
+    // Rejects: Messages with empty text
+}
+
+[HasText]
+[ChatType(ChatType.Private)]
+public async Task LogPrivateMessages()
+{
+    // Log all text messages in private chats
+}
+```
+
+## Word Detection
+
+### TextContainsWord
+
+Filters messages where the text contains a specific word. The word must be a separate token, not part of another word (no alphabetic characters adjacent).
+
+<ParamField path="word" type="string" required>
+  The word to search for in the message text.
+</ParamField>
+
+<ParamField path="comparison" type="StringComparison" default="InvariantCulture">
+  The string comparison type to use for the check.
+</ParamField>
+
+<ParamField path="startIndex" type="int" default="0">
+  The position in the text to start searching from.
+</ParamField>
+
+**Example:**
+
+```csharp
+[TextContainsWord("bot")]
+public async Task HandleBotMention()
+{
+    // Matches: "This bot is great"
+    // Matches: "bot, please help"
+    // Matches: "The bot!"
+    // Rejects: "robot" (word is part of another word)
+    // Rejects: "bots" (different word)
+}
+
+[TextContainsWord("help", StringComparison.OrdinalIgnoreCase)]
+public async Task HandleHelpWord()
+{
+    // Matches: "I need help"
+    // Matches: "Help me please"
+    // Matches: "HELP!"
+    // Rejects: "helpful" (part of another word)
+}
+
+[TextContainsWord("error", startIndex: 10)]
+public async Task HandleErrorLater()
+{
+    // Only searches for "error" starting from position 10
+}
+```
+
+## Practical Examples
+
+### Keyword Detection System
+
+```csharp
+[TextContainsWord("urgent", StringComparison.OrdinalIgnoreCase)]
+[ChatType(ChatType.Group)]
+public async Task HandleUrgentKeyword()
+{
+    // Notify admins when "urgent" is mentioned in group
+    await NotifyAdmins("Urgent message detected");
+}
+```
+
+### Simple Menu System
+
+```csharp
+[TextEquals("Menu", StringComparison.OrdinalIgnoreCase)]
+public async Task ShowMenu()
+{
+    await Bot.SendTextMessageAsync("Main Menu:\n1. Settings\n2. Help\n3. About");
+}
+
+[TextEquals("1")]
+public async Task ShowSettings()
+{
+    await Bot.SendTextMessageAsync("Settings menu...");
+}
+
+[TextEquals("2")]
+public async Task ShowHelp()
+{
+    await Bot.SendTextMessageAsync("Help information...");
+}
+```
+
+### Question Detection
+
+```csharp
+[TextEndsWith("?")]
+[TextContainsWord("how", StringComparison.OrdinalIgnoreCase)]
+public async Task HandleHowQuestion()
+{
+    // Matches: "How do I use this?"
+    // Matches: "how does it work?"
+    await Bot.SendTextMessageAsync("Let me help you with that...");
+}
+```
+
+### Content Moderation
+
+```csharp
+[TextContains("spam", StringComparison.OrdinalIgnoreCase)]
+[ChatType(ChatType.Group)]
+public async Task HandleSpamMention()
+{
+    // Detect potential spam mentions
+    await LogMessage("Potential spam detected");
+}
+
+[TextContainsWord("admin", StringComparison.OrdinalIgnoreCase)]
+public async Task HandleAdminMention()
+{
+    // When users mention "admin" as a word
+    await NotifyAdmins("You were mentioned");
+}
+```
+
+### Multi-Language Support
+
+```csharp
+[TextStartsWith("Hello", StringComparison.OrdinalIgnoreCase)]
+public async Task HandleEnglishGreeting()
+{
+    await Bot.SendTextMessageAsync("Hello! How can I help?");
+}
+
+[TextStartsWith("Hola", StringComparison.OrdinalIgnoreCase)]
+public async Task HandleSpanishGreeting()
+{
+    await Bot.SendTextMessageAsync("¡Hola! ¿Cómo puedo ayudar?");
+}
+
+[TextStartsWith("Bonjour", StringComparison.OrdinalIgnoreCase)]
+public async Task HandleFrenchGreeting()
+{
+    await Bot.SendTextMessageAsync("Bonjour! Comment puis-je vous aider?");
+}
+```
+
+### Confirmation Handling
+
+```csharp
+private bool awaitingConfirmation = false;
+
+[TextEquals("yes", StringComparison.OrdinalIgnoreCase)]
+public async Task HandleYesConfirmation()
+{
+    if (awaitingConfirmation)
+    {
+        await ProcessConfirmedAction();
+        awaitingConfirmation = false;
+    }
+}
+
+[TextEquals("no", StringComparison.OrdinalIgnoreCase)]
+public async Task HandleNoConfirmation()
+{
+    if (awaitingConfirmation)
+    {
+        await Bot.SendTextMessageAsync("Action cancelled.");
+        awaitingConfirmation = false;
+    }
+}
+```
+
+## Best Practices
+
+1. **Use case-insensitive comparison for user input**: Users may type in various cases, so use `StringComparison.OrdinalIgnoreCase` for better UX.
+
+2. **Prefer TextContainsWord over TextContains**: When looking for specific words, use `TextContainsWord` to avoid false positives from substrings.
+
+3. **Combine filters for precision**: Mix text filters with other filter types for more specific matching:
+
+```csharp
+[TextStartsWith("admin")]
+[ChatType(ChatType.Group)]
+[FromUserId(123456)]
+public async Task HandleAdminCommand() { }
+```
+
+4. **Order filters efficiently**: Place faster filters (like `TextStartsWith`) before more complex ones.
+
+5. **Handle edge cases**: Remember that text filters require non-empty text to work properly. Use `[HasText]` when necessary.
+
+## String Comparison Options
+
+Common `StringComparison` values:
+
+- `StringComparison.InvariantCulture`: Culture-independent, case-sensitive (default)
+- `StringComparison.OrdinalIgnoreCase`: Case-insensitive, fastest for ASCII
+- `StringComparison.CurrentCulture`: Respects current culture settings
+- `StringComparison.CurrentCultureIgnoreCase`: Culture-aware, case-insensitive

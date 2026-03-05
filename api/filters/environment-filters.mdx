@@ -1,0 +1,477 @@
+---
+title: Environment Filters
+description: Filter updates based on runtime environment in Telegrator
+---
+
+## Overview
+
+Environment filters allow you to control handler execution based on the runtime environment of your application. These filters are useful for enabling debug features, testing functionality, or creating environment-specific behavior.
+
+## Build Configuration
+
+### IsDebugEnvironment
+
+Filters updates to only execute when the application is running in debug mode.
+
+**Example:**
+
+```csharp
+[IsDebugEnvironment]
+public async Task HandleDebugMessage()
+{
+    // Only executes when compiled in Debug configuration
+    await Bot.SendTextMessageAsync("Debug mode is active");
+}
+
+[CommandHandler("test")]
+[IsDebugEnvironment]
+public async Task HandleTestCommand()
+{
+    // Test commands only available in debug builds
+    await RunDiagnostics();
+}
+
+[TextStartsWith("debug")]
+[IsDebugEnvironment]
+public async Task HandleDebugCommands()
+{
+    // Debug-specific message handling
+    await ProcessDebugMessage();
+}
+```
+
+### IsReleaseEnvironment
+
+Filters updates to only execute when the application is running in release mode.
+
+**Example:**
+
+```csharp
+[IsReleaseEnvironment]
+public async Task HandleProductionMessage()
+{
+    // Only executes when compiled in Release configuration
+    await ProcessProductionMessage();
+}
+
+[CommandHandler("deploy")]
+[IsReleaseEnvironment]
+public async Task HandleDeploy()
+{
+    // Deployment commands only in production
+    await PerformDeployment();
+}
+
+[IsReleaseEnvironment]
+[ChatId(-1001234567890)]
+public async Task HandleProductionChat()
+{
+    // Production chat handling
+}
+```
+
+## Environment Variables
+
+### EnvironmentVariable
+
+Filters updates based on environment variable values. This powerful filter allows you to control behavior based on configuration without recompiling.
+
+<ParamField path="variable" type="string" required>
+  The name of the environment variable.
+</ParamField>
+
+<ParamField path="value" type="string">
+  The expected value of the environment variable (optional).
+</ParamField>
+
+<ParamField path="comparison" type="StringComparison" default="InvariantCulture">
+  The string comparison method.
+</ParamField>
+
+**Check if Variable Exists:**
+
+```csharp
+[EnvironmentVariable("FEATURE_ENABLED")]
+public async Task HandleFeature()
+{
+    // Executes if FEATURE_ENABLED environment variable exists (any value)
+    await RunFeature();
+}
+```
+
+**Check Variable Value:**
+
+```csharp
+[EnvironmentVariable("ENVIRONMENT", "production")]
+public async Task HandleProduction()
+{
+    // Only executes if ENVIRONMENT=production
+    await HandleProductionUpdate();
+}
+
+[EnvironmentVariable("ENVIRONMENT", "development")]
+public async Task HandleDevelopment()
+{
+    // Only executes if ENVIRONMENT=development
+    await HandleDevUpdate();
+}
+```
+
+**Case-Insensitive Matching:**
+
+```csharp
+[EnvironmentVariable("LOG_LEVEL", "debug", StringComparison.OrdinalIgnoreCase)]
+public async Task HandleDebugLogging()
+{
+    // Matches DEBUG, debug, Debug, etc.
+    await EnableVerboseLogging();
+}
+```
+
+**Multiple Environment Checks:**
+
+```csharp
+[EnvironmentVariable("FEATURE_FLAGS", "advanced")]
+[EnvironmentVariable("USER_TIER", "premium")]
+public async Task HandleAdvancedFeature()
+{
+    // Both environment variables must match
+    await ActivateAdvancedFeature();
+}
+```
+
+## Practical Examples
+
+### Feature Flags
+
+```csharp
+[CommandHandler("ai")]
+[EnvironmentVariable("FEATURE_AI", "enabled")]
+public async Task HandleAIFeature()
+{
+    // AI feature only when enabled via environment variable
+    await ProcessWithAI();
+}
+
+[CommandHandler("beta")]
+[EnvironmentVariable("BETA_FEATURES", "true")]
+public async Task HandleBetaFeature()
+{
+    // Beta features controlled by environment
+    await RunBetaFeature();
+}
+```
+
+### Environment-Specific Logging
+
+```csharp
+[EnvironmentVariable("LOG_LEVEL", "verbose")]
+public async Task LogVerbose()
+{
+    // Detailed logging when LOG_LEVEL=verbose
+    await LogDetailedInformation();
+}
+
+[IsDebugEnvironment]
+public async Task LogDebugInfo()
+{
+    // Debug logging in debug builds
+    Console.WriteLine($"Update received: {Update.Type}");
+}
+```
+
+### Multi-Environment Bot
+
+```csharp
+[CommandHandler("status")]
+[EnvironmentVariable("ENVIRONMENT", "production")]
+public async Task HandleProductionStatus()
+{
+    await Bot.SendTextMessageAsync("Production Status: ✓ Online");
+}
+
+[CommandHandler("status")]
+[EnvironmentVariable("ENVIRONMENT", "staging")]
+public async Task HandleStagingStatus()
+{
+    await Bot.SendTextMessageAsync("Staging Status: ⚠ Testing");
+}
+
+[CommandHandler("status")]
+[EnvironmentVariable("ENVIRONMENT", "development")]
+public async Task HandleDevStatus()
+{
+    await Bot.SendTextMessageAsync("Development Status: 🔧 Dev Mode");
+}
+```
+
+### Testing and QA
+
+```csharp
+[IsDebugEnvironment]
+[CommandHandler("simulate")]
+public async Task HandleSimulate()
+{
+    // Simulation commands only in debug
+    await SimulateScenario();
+}
+
+[EnvironmentVariable("QA_MODE", "enabled")]
+public async Task HandleQAMode()
+{
+    // Special handling for QA testing
+    await EnableQAFeatures();
+}
+
+[EnvironmentVariable("TEST_DATA", "mock")]
+public async Task UseMockData()
+{
+    // Use mock data instead of real API calls
+    await LoadMockData();
+}
+```
+
+### Region-Specific Features
+
+```csharp
+[CommandHandler("payments")]
+[EnvironmentVariable("REGION", "US")]
+public async Task HandleUSPayments()
+{
+    // US-specific payment handling
+    await ProcessUSPayment();
+}
+
+[CommandHandler("payments")]
+[EnvironmentVariable("REGION", "EU")]
+public async Task HandleEUPayments()
+{
+    // EU-specific payment handling with GDPR compliance
+    await ProcessEUPayment();
+}
+```
+
+### Maintenance Mode
+
+```csharp
+[EnvironmentVariable("MAINTENANCE_MODE", "true")]
+public async Task HandleMaintenanceMode()
+{
+    // Respond to all messages during maintenance
+    await Bot.SendTextMessageAsync(
+        "🔧 Bot is currently under maintenance. Please try again later."
+    );
+}
+
+[EnvironmentVariable("MAINTENANCE_MODE", "false")]
+[CommandHandler("help")]
+public async Task HandleHelp()
+{
+    // Normal operation when not in maintenance
+    await ShowHelpMenu();
+}
+```
+
+### Admin Features
+
+```csharp
+[CommandHandler("admin")]
+[EnvironmentVariable("ADMIN_ENABLED", "true")]
+[FromUserId(123456789)]
+public async Task HandleAdminCommands()
+{
+    // Admin commands only when enabled and from admin user
+    await ProcessAdminCommand();
+}
+
+[IsDebugEnvironment]
+[CommandHandler("dump")]
+public async Task DumpState()
+{
+    // Dump internal state for debugging
+    await SendStateInformation();
+}
+```
+
+### A/B Testing
+
+```csharp
+[CommandHandler("start")]
+[EnvironmentVariable("AB_TEST_GROUP", "A")]
+public async Task HandleStartGroupA()
+{
+    await Bot.SendTextMessageAsync("Welcome! (Version A)");
+}
+
+[CommandHandler("start")]
+[EnvironmentVariable("AB_TEST_GROUP", "B")]
+public async Task HandleStartGroupB()
+{
+    await Bot.SendTextMessageAsync("Hello! (Version B)");
+}
+```
+
+### External Service Integration
+
+```csharp
+[EnvironmentVariable("USE_EXTERNAL_API", "true")]
+public async Task UseExternalAPI()
+{
+    // Use external API when configured
+    await CallExternalService();
+}
+
+[EnvironmentVariable("USE_EXTERNAL_API", "false")]
+public async Task UseLocalProcessing()
+{
+    // Fallback to local processing
+    await ProcessLocally();
+}
+```
+
+## Setting Environment Variables
+
+### In Your Application
+
+```csharp
+// Program.cs or Startup.cs
+Environment.SetEnvironmentVariable("ENVIRONMENT", "production");
+Environment.SetEnvironmentVariable("FEATURE_AI", "enabled");
+Environment.SetEnvironmentVariable("LOG_LEVEL", "info");
+```
+
+### In launchSettings.json (Development)
+
+```json
+{
+  "profiles": {
+    "Development": {
+      "commandName": "Project",
+      "environmentVariables": {
+        "ENVIRONMENT": "development",
+        "FEATURE_AI": "enabled",
+        "LOG_LEVEL": "debug"
+      }
+    },
+    "Production": {
+      "commandName": "Project",
+      "environmentVariables": {
+        "ENVIRONMENT": "production",
+        "LOG_LEVEL": "info"
+      }
+    }
+  }
+}
+```
+
+### In Docker
+
+```dockerfile
+ENV ENVIRONMENT=production
+ENV FEATURE_AI=enabled
+ENV LOG_LEVEL=info
+```
+
+### In docker-compose.yml
+
+```yaml
+services:
+  bot:
+    image: mybot:latest
+    environment:
+      - ENVIRONMENT=production
+      - FEATURE_AI=enabled
+      - LOG_LEVEL=info
+```
+
+### In Shell/Terminal
+
+```bash
+# Linux/macOS
+export ENVIRONMENT=production
+export FEATURE_AI=enabled
+
+# Windows (Command Prompt)
+set ENVIRONMENT=production
+set FEATURE_AI=enabled
+
+# Windows (PowerShell)
+$env:ENVIRONMENT="production"
+$env:FEATURE_AI="enabled"
+```
+
+## Best Practices
+
+1. **Use environment variables for configuration**: Prefer environment variables over hardcoded values for flexibility:
+
+```csharp
+// Good
+[EnvironmentVariable("FEATURE_ENABLED", "true")]
+
+// Less flexible
+[IsDebugEnvironment]  // Only works in debug builds
+```
+
+2. **Document required variables**: Keep a list of environment variables your bot uses:
+
+```csharp
+// Required environment variables:
+// - ENVIRONMENT: "production", "staging", or "development"
+// - FEATURE_AI: "enabled" or "disabled"
+// - LOG_LEVEL: "debug", "info", "warning", or "error"
+```
+
+3. **Provide defaults**: Handle missing environment variables gracefully:
+
+```csharp
+var logLevel = Environment.GetEnvironmentVariable("LOG_LEVEL") ?? "info";
+```
+
+4. **Use DEBUG/RELEASE for build-time decisions**: Use `IsDebugEnvironment` and `IsReleaseEnvironment` for features that should be compiled in or out:
+
+```csharp
+[IsDebugEnvironment]
+[CommandHandler("test")]
+public async Task DebugTest() { }  // Not available in release builds
+```
+
+5. **Combine environment and permission filters**: Create secure, environment-aware handlers:
+
+```csharp
+[EnvironmentVariable("ENVIRONMENT", "production")]
+[FromUserId(123456789)]  // Only admin in production
+public async Task HandleProductionAdmin() { }
+```
+
+6. **Use consistent naming**: Establish a naming convention for environment variables:
+
+```csharp
+// Good: Consistent prefixes
+FEATURE_AI
+FEATURE_PAYMENTS
+FEATURE_ANALYTICS
+
+// Less organized
+AI_ENABLED
+PAYMENTS
+ENABLE_ANALYTICS
+```
+
+7. **Validate environment variables at startup**: Check critical environment variables when your bot starts:
+
+```csharp
+public static void Main()
+{
+    var requiredVars = new[] { "BOT_TOKEN", "ENVIRONMENT" };
+    
+    foreach (var varName in requiredVars)
+    {
+        if (string.IsNullOrEmpty(Environment.GetEnvironmentVariable(varName)))
+        {
+            throw new Exception($"Required environment variable {varName} is not set");
+        }
+    }
+    
+    // Start bot...
+}
+```

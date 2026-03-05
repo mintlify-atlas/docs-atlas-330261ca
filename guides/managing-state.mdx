@@ -1,0 +1,546 @@
+---
+title: Managing State
+description: Learn how to manage conversation state in Telegrator for wizards and multi-step flows
+---
+
+# Managing State
+
+State management is essential for creating multi-step conversations, wizards, and context-aware bot interactions. Telegrator provides a built-in state keeping system that tracks user or chat state without requiring manual state machines.
+
+## Understanding State Keepers
+
+State keepers maintain state information for users or chats. Telegrator provides three built-in state keeper types:
+
+- **NumericStateKeeper** - Tracks integer-based states (0, 1, 2, ...)
+- **StringStateKeeper** - Tracks string-based states ("start", "waiting_input", ...)
+- **EnumStateKeeper** - Tracks enum-based states for type safety
+
+## Basic State Flow Example
+
+Here's a simple registration wizard using numeric states:
+
+<Steps>
+  <Step title="Define state constants">
+    ```csharp
+    public static class RegistrationStates
+    {
+        public const int WaitingName = 1;
+        public const int WaitingAge = 2;
+        public const int WaitingEmail = 3;
+        public const int Complete = 4;
+    }
+    ```
+  </Step>
+
+  <Step title="Create initial handler">
+    ```csharp
+    using Telegrator.Handlers;
+    using Telegrator.Annotations;
+    using Telegrator.Annotations.StateKeeping;
+
+    [CommandHandler]
+    [CommandAllias("register")]
+    [NumericState(SpecialState.NoState)] // Only when user has no state
+    public class StartRegistrationHandler : CommandHandler
+    {
+        public override async Task<Result> Execute(
+            IHandlerContainer<Message> container,
+            CancellationToken cancellation)
+        {
+            // Create state for this user
+            Container.CreateNumericState();
+            
+            // Move to first state
+            Container.ForwardNumericState();
+            
+            await Reply(
+                "Welcome! Let's get started. What's your name?",
+                cancellationToken: cancellation);
+            
+            return Result.Ok();
+        }
+    }
+    ```
+  </Step>
+
+  <Step title="Handle state 1: Collect name">
+    ```csharp
+    [MessageHandler]
+    [NumericState(RegistrationStates.WaitingName)]
+    public class CollectNameHandler : MessageHandler
+    {
+        public override async Task<Result> Execute(
+            IHandlerContainer<Message> container,
+            CancellationToken cancellation)
+        {
+            string name = Input.Text ?? "";
+            
+            // Store name in extra data
+            ExtraData["userName"] = name;
+            
+            // Move to next state
+            Container.ForwardNumericState();
+            
+            await Reply(
+                $"Nice to meet you, {name}! How old are you?",
+                cancellationToken: cancellation);
+            
+            return Result.Ok();
+        }
+    }
+    ```
+  </Step>
+
+  <Step title="Handle state 2: Collect age">
+    ```csharp
+    [MessageHandler]
+    [NumericState(RegistrationStates.WaitingAge)]
+    public class CollectAgeHandler : MessageHandler
+    {
+        public override async Task<Result> Execute(
+            IHandlerContainer<Message> container,
+            CancellationToken cancellation)
+        {
+            if (!int.TryParse(Input.Text, out int age))
+            {
+                await Reply(
+                    "Please enter a valid number for your age.",
+                    cancellationToken: cancellation);
+                return Result.Ok();
+            }
+            
+            ExtraData["userAge"] = age;
+            Container.ForwardNumericState();
+            
+            await Reply(
+                "Great! What's your email address?",
+                cancellationToken: cancellation);
+            
+            return Result.Ok();
+        }
+    }
+    ```
+  </Step>
+
+  <Step title="Complete the flow">
+    ```csharp
+    [MessageHandler]
+    [NumericState(RegistrationStates.WaitingEmail)]
+    public class CollectEmailHandler : MessageHandler
+    {
+        public override async Task<Result> Execute(
+            IHandlerContainer<Message> container,
+            CancellationToken cancellation)
+        {
+            string email = Input.Text ?? "";
+            
+            // Retrieve stored data
+            string name = ExtraData["userName"] as string ?? "";
+            int age = (int)(ExtraData["userAge"] ?? 0);
+            
+            // Save to database (pseudo-code)
+            // await SaveUserRegistration(name, age, email);
+            
+            // Delete state - user is done
+            Container.DeleteNumericState();
+            
+            await Reply(
+                $"Registration complete!\\nName: {name}\\nAge: {age}\\nEmail: {email}",
+                cancellationToken: cancellation);
+            
+            return Result.Ok();
+        }
+    }
+    ```
+  </Step>
+</Steps>
+
+## State Keeper Attributes
+
+### Numeric State
+
+```csharp
+// Match specific numeric state
+[NumericState(1)]
+public class State1Handler : MessageHandler { /* ... */ }
+
+// Match "no state" (user hasn't started a flow)
+[NumericState(SpecialState.NoState)]
+public class NoStateHandler : MessageHandler { /* ... */ }
+
+// Match "any state" (user has any state)
+[NumericState(SpecialState.AnyState)]
+public class AnyStateHandler : MessageHandler { /* ... */ }
+```
+
+### String State
+
+```csharp
+// Match specific string state
+[StringState("awaiting_input")]
+public class AwaitingInputHandler : MessageHandler { /* ... */ }
+
+// Special states work with string states too
+[StringState(SpecialState.NoState)]
+public class NoStringStateHandler : MessageHandler { /* ... */ }
+```
+
+### Enum State
+
+For type-safe state management, use enums:
+
+```csharp
+public enum OrderState
+{
+    SelectingProduct,
+    EnteringQuantity,
+    ConfirmingAddress,
+    ProcessingPayment,
+    Complete
+}
+
+[MessageHandler]
+[EnumState(OrderState.SelectingProduct)]
+public class ProductSelectionHandler : MessageHandler
+{
+    public override async Task<Result> Execute(
+        IHandlerContainer<Message> container,
+        CancellationToken cancellation)
+    {
+        // Process product selection
+        Container.ForwardEnumState<OrderState>();
+        
+        await Reply("How many would you like?", cancellationToken: cancellation);
+        return Result.Ok();
+    }
+}
+```
+
+## State Management Methods
+
+The container provides several methods for managing state:
+
+```csharp
+public class StateManagementExample : MessageHandler
+{
+    public override async Task<Result> Execute(
+        IHandlerContainer<Message> container,
+        CancellationToken cancellation)
+    {
+        // Create a new state (sets to default/0)
+        Container.CreateNumericState();
+        
+        // Move state forward (increment)
+        Container.ForwardNumericState();
+        
+        // Move state backward (decrement)
+        Container.BackwardNumericState();
+        
+        // Set specific state
+        Container.SetNumericState(5);
+        
+        // Get current state
+        int currentState = Container.GetNumericState();
+        
+        // Check if state exists
+        bool hasState = Container.HasNumericState();
+        
+        // Delete state
+        Container.DeleteNumericState();
+        
+        return Result.Ok();
+    }
+}
+```
+
+## Custom State Key Resolvers
+
+By default, states are tracked per sender (user). You can track state per chat instead:
+
+```csharp
+using Telegrator.StateKeeping;
+
+// Track state per chat, not per user
+[MessageHandler]
+[NumericState(1, typeof(ChatIdResolver))]
+public class ChatStateHandler : MessageHandler
+{
+    // This state is shared by all users in the same chat
+    public override async Task<Result> Execute(
+        IHandlerContainer<Message> container,
+        CancellationToken cancellation)
+    {
+        await Reply("This is a chat-level state", cancellationToken: cancellation);
+        return Result.Ok();
+    }
+}
+```
+
+### Creating Custom Key Resolvers
+
+```csharp
+using Telegrator.StateKeeping.Components;
+using Telegram.Bot.Types;
+
+public class GroupAdminResolver : IStateKeyResolver<long>
+{
+    public long ResolveKey(Update update)
+    {
+        // Custom logic: use group ID for groups, user ID for private
+        if (update.Message?.Chat.Type is ChatType.Group or ChatType.Supergroup)
+        {
+            return update.Message.Chat.Id;
+        }
+        
+        return update.Message?.From?.Id ?? 0;
+    }
+}
+
+// Usage
+[MessageHandler]
+[NumericState(1, typeof(GroupAdminResolver))]
+public class CustomResolverHandler : MessageHandler { /* ... */ }
+```
+
+## Multi-Step Wizard Example
+
+Here's a complete pizza ordering wizard:
+
+<CodeGroup>
+```csharp Start Order
+[CommandHandler]
+[CommandAllias("order")]
+[StringState(SpecialState.NoState)]
+public class StartOrderHandler : CommandHandler
+{
+    public override async Task<Result> Execute(
+        IHandlerContainer<Message> container,
+        CancellationToken cancellation)
+    {
+        Container.CreateStringState();
+        Container.SetStringState("select_size");
+        
+        var keyboard = new ReplyKeyboardMarkup(new[]
+        {
+            new KeyboardButton[] { "Small", "Medium", "Large" }
+        })
+        {
+            ResizeKeyboard = true
+        };
+        
+        await Reply(
+            "Welcome to Pizza Bot! Choose your size:",
+            replyMarkup: keyboard,
+            cancellationToken: cancellation);
+        
+        return Result.Ok();
+    }
+}
+```
+
+```csharp Select Size
+[MessageHandler]
+[StringState("select_size")]
+public class SelectSizeHandler : MessageHandler
+{
+    public override async Task<Result> Execute(
+        IHandlerContainer<Message> container,
+        CancellationToken cancellation)
+    {
+        string size = Input.Text ?? "";
+        
+        if (!new[] { "Small", "Medium", "Large" }.Contains(size))
+        {
+            await Reply("Please choose Small, Medium, or Large.", cancellationToken: cancellation);
+            return Result.Ok();
+        }
+        
+        ExtraData["pizzaSize"] = size;
+        Container.SetStringState("select_toppings");
+        
+        var keyboard = new ReplyKeyboardMarkup(new[]
+        {
+            new KeyboardButton[] { "Pepperoni", "Mushrooms", "Olives" },
+            new KeyboardButton[] { "Done" }
+        })
+        {
+            ResizeKeyboard = true
+        };
+        
+        await Reply(
+            $"Great! {size} pizza selected. Choose toppings (send 'Done' when finished):",
+            replyMarkup: keyboard,
+            cancellationToken: cancellation);
+        
+        return Result.Ok();
+    }
+}
+```
+
+```csharp Collect Toppings
+[MessageHandler]
+[StringState("select_toppings")]
+public class SelectToppingsHandler : MessageHandler
+{
+    public override async Task<Result> Execute(
+        IHandlerContainer<Message> container,
+        CancellationToken cancellation)
+    {
+        string topping = Input.Text ?? "";
+        
+        if (topping == "Done")
+        {
+            Container.SetStringState("confirm_order");
+            
+            string size = ExtraData["pizzaSize"] as string ?? "Unknown";
+            var toppings = ExtraData["toppings"] as List<string> ?? new List<string>();
+            
+            await Reply(
+                $"Order Summary:\\nSize: {size}\\nToppings: {string.Join(", ", toppings)}\\n\\nConfirm? (Yes/No)",
+                replyMarkup: new ReplyKeyboardRemove(),
+                cancellationToken: cancellation);
+            
+            return Result.Ok();
+        }
+        
+        // Add topping
+        if (!ExtraData.ContainsKey("toppings"))
+        {
+            ExtraData["toppings"] = new List<string>();
+        }
+        
+        var toppingsList = ExtraData["toppings"] as List<string>;
+        toppingsList?.Add(topping);
+        
+        await Reply($"Added {topping}. Choose more or send 'Done'.", cancellationToken: cancellation);
+        return Result.Ok();
+    }
+}
+```
+
+```csharp Confirm Order
+[MessageHandler]
+[StringState("confirm_order")]
+public class ConfirmOrderHandler : MessageHandler
+{
+    public override async Task<Result> Execute(
+        IHandlerContainer<Message> container,
+        CancellationToken cancellation)
+    {
+        string response = Input.Text?.ToLower() ?? "";
+        
+        if (response == "yes")
+        {
+            string size = ExtraData["pizzaSize"] as string ?? "Unknown";
+            var toppings = ExtraData["toppings"] as List<string> ?? new List<string>();
+            
+            // Process order (pseudo-code)
+            // await PlaceOrder(Input.From.Id, size, toppings);
+            
+            Container.DeleteStringState();
+            
+            await Reply(
+                "Order placed! Your pizza will arrive in 30 minutes.",
+                cancellationToken: cancellation);
+        }
+        else if (response == "no")
+        {
+            Container.DeleteStringState();
+            await Reply("Order cancelled.", cancellationToken: cancellation);
+        }
+        else
+        {
+            await Reply("Please reply 'Yes' or 'No'.", cancellationToken: cancellation);
+        }
+        
+        return Result.Ok();
+    }
+}
+```
+</CodeGroup>
+
+## Cancel Command Pattern
+
+Always provide a way to exit flows:
+
+```csharp
+[CommandHandler]
+[CommandAllias("cancel")]
+[NumericState(SpecialState.AnyState)] // Works in any state
+public class CancelFlowHandler : CommandHandler
+{
+    public override async Task<Result> Execute(
+        IHandlerContainer<Message> container,
+        CancellationToken cancellation)
+    {
+        // Clear any active state
+        Container.DeleteNumericState();
+        Container.DeleteStringState();
+        
+        await Reply(
+            "Operation cancelled. All data cleared.",
+            replyMarkup: new ReplyKeyboardRemove(),
+            cancellationToken: cancellation);
+        
+        return Result.Ok();
+    }
+}
+```
+
+## State Persistence
+
+<Warning>
+By default, state is stored in memory and will be lost when the bot restarts. 
+For production bots, implement custom state keepers with persistent storage (database, Redis, etc.).
+</Warning>
+
+To implement persistent state, create a custom state keeper:
+
+```csharp
+public class PersistentNumericStateKeeper : StateKeeperBase<long, int>
+{
+    private readonly IDatabase _database;
+    
+    public override int DefaultState => 0;
+    
+    public PersistentNumericStateKeeper(IDatabase database)
+    {
+        _database = database;
+    }
+    
+    public override void SetState(Update keySource, int newState)
+    {
+        long key = KeyResolver.ResolveKey(keySource);
+        _database.SaveState(key, newState);
+    }
+    
+    public override int GetState(Update keySource)
+    {
+        long key = KeyResolver.ResolveKey(keySource);
+        return _database.LoadState(key) ?? DefaultState;
+    }
+    
+    // Implement other methods...
+}
+```
+
+## Best Practices
+
+1. **Always provide a cancel command** - Users need a way to exit flows
+2. **Validate user input** - Don't advance state if input is invalid
+3. **Use enum states** for complex flows - Type safety prevents errors
+4. **Clear state when flows complete** - Don't leave users in limbo
+5. **Handle timeout scenarios** - Consider clearing state after inactivity
+6. **Store minimal data in ExtraData** - Use a database for large data
+7. **Document state flow** - Create diagrams showing state transitions
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Concurrency Control" icon="gauge" href="/guides/concurrency-control">
+    Learn how to manage concurrent handler execution
+  </Card>
+  <Card title="Aspect-Oriented Programming" icon="layer-group" href="/guides/aspect-oriented-programming">
+    Add cross-cutting concerns with pre and post processors
+  </Card>
+</CardGroup>

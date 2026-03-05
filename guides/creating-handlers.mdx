@@ -1,0 +1,306 @@
+---
+title: Creating Handlers
+description: Learn how to create different types of handlers in Telegrator with step-by-step examples
+---
+
+# Creating Handlers
+
+Handlers are the core building blocks of your Telegrator bot. Each handler processes specific types of Telegram updates and encapsulates a discrete piece of bot functionality.
+
+## Handler Types
+
+Telegrator provides several handler base classes for different update types:
+
+- **MessageHandler** - Processes message updates
+- **CommandHandler** - Processes command messages (e.g., `/start`)
+- **CallbackQueryHandler** - Processes inline keyboard button clicks
+- **AnyUpdateHandler** - Processes any type of update
+
+## Creating a Message Handler
+
+<Steps>
+  <Step title="Create a handler class">
+    Inherit from `MessageHandler` and decorate with `[MessageHandler]` attribute:
+
+    ```csharp
+    using Telegrator.Handlers;
+    using Telegrator.Annotations;
+    using Telegram.Bot.Types;
+
+    [MessageHandler]
+    public class HelloHandler : MessageHandler
+    {
+        public override async Task<Result> Execute(
+            IHandlerContainer<Message> container, 
+            CancellationToken cancellation)
+        {
+            await Reply("Hello, world!", cancellationToken: cancellation);
+            return Result.Ok();
+        }
+    }
+    ```
+  </Step>
+
+  <Step title="Register the handler">
+    Add your handler to the bot's handler collection:
+
+    ```csharp
+    var bot = new TelegratorClient("YOUR_BOT_TOKEN");
+    bot.Handlers.AddHandler<HelloHandler>();
+    bot.StartReceiving();
+    ```
+  </Step>
+</Steps>
+
+### Accessing Update Data
+
+Inside your handler, you have convenient properties to access update information:
+
+```csharp
+[MessageHandler]
+public class EchoHandler : MessageHandler
+{
+    public override async Task<Result> Execute(
+        IHandlerContainer<Message> container, 
+        CancellationToken cancellation)
+    {
+        // Access the incoming message
+        var messageText = Input.Text;
+        
+        // Access the Telegram Bot client
+        await Client.SendTextMessageAsync(
+            Input.Chat.Id,
+            $"You said: {messageText}",
+            cancellationToken: cancellation);
+        
+        // Or use the convenient Reply method
+        await Reply($"Echo: {messageText}", cancellationToken: cancellation);
+        
+        return Result.Ok();
+    }
+}
+```
+
+## Creating a Command Handler
+
+Command handlers process messages that start with `/` (e.g., `/start`, `/help`).
+
+<Steps>
+  <Step title="Create command handler class">
+    Inherit from `CommandHandler` and use `[CommandHandler]` with `[CommandAllias]`:
+
+    ```csharp
+    using Telegrator.Handlers;
+    using Telegrator.Annotations;
+    using Telegram.Bot.Types;
+    using Telegram.Bot.Types.Enums;
+
+    [CommandHandler]
+    [CommandAllias("start", "hello")]
+    [ChatType(ChatType.Private)]
+    public class StartCommandHandler : CommandHandler
+    {
+        public override async Task<Result> Execute(
+            IHandlerContainer<Message> container,
+            CancellationToken cancellation)
+        {
+            await Response(
+                "Welcome to the bot! Use /help to see available commands.",
+                cancellationToken: cancellation);
+            
+            return Result.Ok();
+        }
+    }
+    ```
+  </Step>
+
+  <Step title="Access command arguments">
+    Command handlers provide properties to access command arguments:
+
+    ```csharp
+    [CommandHandler]
+    [CommandAllias("greet")]
+    public class GreetCommandHandler : CommandHandler
+    {
+        public override async Task<Result> Execute(
+            IHandlerContainer<Message> container,
+            CancellationToken cancellation)
+        {
+            // Get command arguments as array
+            string[] args = Arguments;
+            
+            // Get full arguments string
+            string argsString = ArgumentsString;
+            
+            // Get the command that was used
+            string command = ReceivedCommand;
+            
+            if (args.Length > 0)
+            {
+                await Reply($"Hello, {args[0]}!", cancellationToken: cancellation);
+            }
+            else
+            {
+                await Reply("Hello! Please provide a name.", cancellationToken: cancellation);
+            }
+            
+            return Result.Ok();
+        }
+    }
+    ```
+  </Step>
+</Steps>
+
+<Note>
+The `ReceivedCommand` property returns the command without the `/` prefix and bot username.
+For example, `/start@mybot` returns `"start"`.
+</Note>
+
+## Creating a Callback Query Handler
+
+Callback query handlers process button clicks from inline keyboards.
+
+```csharp
+using Telegrator.Handlers;
+using Telegrator.Annotations;
+using Telegram.Bot.Types;
+using Telegram.Bot.Types.ReplyMarkups;
+
+[CallbackQueryHandler]
+[CallbackDataRegex(@"^button_\\d+$")]
+public class ButtonClickHandler : CallbackQueryHandler
+{
+    public override async Task<Result> Execute(
+        IHandlerContainer<CallbackQuery> container,
+        CancellationToken cancellation)
+    {
+        // Get the callback data
+        string data = TypeData;
+        
+        // Answer the callback query (removes loading state)
+        await Answer("Button clicked!", showAlert: false, cancellationToken: cancellation);
+        
+        // Edit the message that contained the button
+        await EditMessage(
+            $"You clicked: {data}",
+            replyMarkup: new InlineKeyboardMarkup(
+                InlineKeyboardButton.WithCallbackData("Click again", "button_1")
+            ),
+            cancellationToken: cancellation);
+        
+        return Result.Ok();
+    }
+}
+```
+
+<CodeGroup>
+```csharp Sending a message with inline keyboard
+[CommandHandler]
+[CommandAllias("menu")]
+public class MenuCommandHandler : CommandHandler
+{
+    public override async Task<Result> Execute(
+        IHandlerContainer<Message> container,
+        CancellationToken cancellation)
+    {
+        var keyboard = new InlineKeyboardMarkup(new[]
+        {
+            new[]
+            {
+                InlineKeyboardButton.WithCallbackData("Option 1", "button_1"),
+                InlineKeyboardButton.WithCallbackData("Option 2", "button_2")
+            },
+            new[]
+            {
+                InlineKeyboardButton.WithCallbackData("Option 3", "button_3")
+            }
+        });
+        
+        await Reply("Choose an option:", replyMarkup: keyboard, cancellationToken: cancellation);
+        return Result.Ok();
+    }
+}
+```
+
+```csharp Handling the callback
+[CallbackQueryHandler]
+[CallbackDataStartsWith("button_")]
+public class OptionSelectedHandler : CallbackQueryHandler
+{
+    public override async Task<Result> Execute(
+        IHandlerContainer<CallbackQuery> container,
+        CancellationToken cancellation)
+    {
+        string option = TypeData.Replace("button_", "");
+        
+        await Answer($"You selected option {option}", showAlert: true, cancellationToken: cancellation);
+        await EditMessage($"Selected: Option {option}", cancellationToken: cancellation);
+        
+        return Result.Ok();
+    }
+}
+```
+</CodeGroup>
+
+## Handler Priorities and Importance
+
+Control the execution order of handlers using the `Importance` and `Priority` parameters:
+
+```csharp
+// Higher importance handlers are checked first
+[MessageHandler(importance: 10)]
+[TextContains("admin")]
+public class AdminMessageHandler : MessageHandler
+{
+    public override async Task<Result> Execute(
+        IHandlerContainer<Message> container,
+        CancellationToken cancellation)
+    {
+        await Reply("Admin command detected", cancellationToken: cancellation);
+        return Result.Ok();
+    }
+}
+
+// Lower importance, checked later
+[MessageHandler(importance: 0)]
+public class GeneralMessageHandler : MessageHandler
+{
+    public override async Task<Result> Execute(
+        IHandlerContainer<Message> container,
+        CancellationToken cancellation)
+    {
+        await Reply("General message", cancellationToken: cancellation);
+        return Result.Ok();
+    }
+}
+```
+
+<Note>
+Handlers with higher `importance` values are evaluated first. If multiple handlers match an update, 
+the one with the highest importance will execute. Use `Priority` to control the order among handlers 
+with the same importance level.
+</Note>
+
+## Available Handler Properties
+
+All handlers provide access to these properties:
+
+| Property | Type | Description |
+|----------|------|-------------|
+| `Input` | `TUpdate` | The incoming update object (Message, CallbackQuery, etc.) |
+| `Client` | `ITelegramBotClient` | The Telegram Bot API client |
+| `HandlingUpdate` | `Update` | The full Telegram update object |
+| `ExtraData` | `Dictionary<string, object>` | Container for sharing data between filters and handlers |
+| `CompletedFilters` | `CompletedFiltersList` | List of filters that passed successfully |
+| `AwaitingProvider` | `IAwaitingProvider` | Provider for awaiting subsequent updates |
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Working with Filters" icon="filter" href="/guides/working-with-filters">
+    Learn how to add filters to control when handlers execute
+  </Card>
+  <Card title="Managing State" icon="database" href="/guides/managing-state">
+    Implement multi-step flows and wizards with state management
+  </Card>
+</CardGroup>

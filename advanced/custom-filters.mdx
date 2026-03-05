@@ -1,0 +1,324 @@
+---
+title: "Custom Filters"
+description: "Learn how to create custom filter attributes by extending UpdateFilterAttribute"
+---
+
+## Overview
+
+Telegrator's filter system allows you to create custom filter attributes to control when handlers should execute. By extending `UpdateFilterAttribute<T>`, you can implement sophisticated filtering logic tailored to your specific use cases.
+
+## Understanding UpdateFilterAttribute
+
+The `UpdateFilterAttribute<T>` is the base class for all update filters in Telegrator. It provides:
+
+- **Type-safe filtering**: Generic type parameter `T` specifies the target type to filter (e.g., `Message`, `CallbackQuery`)
+- **Filter composition**: Combine multiple filters with logical operators
+- **Modifier support**: Use `Not` and `OrNext` modifiers to create complex filter chains
+- **Target extraction**: Automatic extraction of the filtering target from updates
+
+## Basic Custom Filter Structure
+
+Here's the structure of a custom filter attribute:
+
+```csharp
+using Telegram.Bot.Types;
+using Telegram.Bot.Types.Enums;
+using Telegrator.Attributes;
+using Telegrator.Filters;
+using Telegrator.Filters.Components;
+
+public class MyCustomFilterAttribute : UpdateFilterAttribute<Message>
+{
+    public MyCustomFilterAttribute()
+        : base(new MyCustomFilter())
+    {
+    }
+
+    public override UpdateType[] AllowedTypes => 
+    [
+        UpdateType.Message,
+        UpdateType.EditedMessage
+    ];
+
+    public override Message? GetFilterringTarget(Update update)
+    {
+        return update switch
+        {
+            { Message: { } message } => message,
+            { EditedMessage: { } message } => message,
+            _ => null
+        };
+    }
+}
+
+public class MyCustomFilter : Filter<Message>
+{
+    public override bool CanPass(FilterExecutionContext<Message> context)
+    {
+        // Implement your filtering logic here
+        return context.Input?.Text?.Length > 10;
+    }
+}
+```
+
+## Real-World Examples from Telegrator
+
+### Example 1: Regex Filter
+
+From `/home/daytona/workspace/source/Telegrator/Annotations/MessageFilterAttributes.cs:53-68`:
+
+```csharp
+public class MessageRegexAttribute : MessageFilterAttribute
+{
+    /// <summary>
+    /// Initializes the attribute with a regex pattern and options.
+    /// </summary>
+    public MessageRegexAttribute(string pattern, RegexOptions regexOptions = default)
+        : base(new MessageRegexFilter(pattern, regexOptions)) { }
+
+    /// <summary>
+    /// Initializes the attribute with a precompiled regex.
+    /// </summary>
+    public MessageRegexAttribute(Regex regex)
+        : base(new MessageRegexFilter(regex)) { }
+}
+```
+
+### Example 2: Message Entity Filter
+
+From `/home/daytona/workspace/source/Telegrator/Annotations/MessageFilterAttributes.cs:123-149`:
+
+```csharp
+public class MessageHasEntityAttribute : MessageFilterAttribute
+{
+    public MessageHasEntityAttribute(MessageEntityType type)
+        : base(new MessageHasEntityFilter(type)) { }
+
+    public MessageHasEntityAttribute(
+        MessageEntityType type, 
+        int offset, 
+        int? length)
+        : base(new MessageHasEntityFilter(type, offset, length)) { }
+
+    public MessageHasEntityAttribute(
+        MessageEntityType type, 
+        string content, 
+        StringComparison stringComparison = StringComparison.CurrentCulture)
+        : base(new MessageHasEntityFilter(type, content, stringComparison)) { }
+}
+```
+
+## Composing Multiple Filters
+
+You can combine multiple filters in your custom attribute:
+
+```csharp
+public class ComplexFilterAttribute : UpdateFilterAttribute<Message>
+{
+    public ComplexFilterAttribute()
+        : base(
+            new TextLengthFilter(min: 5, max: 100),
+            new ContainsKeywordFilter("important"),
+            new FromVerifiedUserFilter()
+        )
+    {
+    }
+
+    public override UpdateType[] AllowedTypes => [UpdateType.Message];
+
+    public override Message? GetFilterringTarget(Update update)
+        => update.Message;
+}
+```
+
+<Note>
+  When passing multiple filters to the base constructor, they are combined with **AND** logic by default. All filters must pass for the attribute to match.
+</Note>
+
+## Using Filter Modifiers
+
+Filter modifiers allow you to create complex filter chains:
+
+```csharp
+// NOT modifier - inverts the filter result
+[MyCustomFilter(Modifiers = FilterModifier.Not)]
+public async Task HandleNonMatching(IHandlerContainer container)
+{
+    // Executes when the filter does NOT match
+}
+
+// OrNext modifier - combines this filter with the next using OR logic
+[FilterA(Modifiers = FilterModifier.OrNext)]
+[FilterB]
+public async Task HandleEither(IHandlerContainer container)
+{
+    // Executes when FilterA OR FilterB matches
+}
+
+// Combining modifiers
+[FilterA(Modifiers = FilterModifier.Not | FilterModifier.OrNext)]
+[FilterB]
+public async Task HandleComplex(IHandlerContainer container)
+{
+    // Executes when (NOT FilterA) OR FilterB
+}
+```
+
+## Creating Filters with Parameters
+
+```csharp
+public class TextLengthFilterAttribute : UpdateFilterAttribute<Message>
+{
+    public TextLengthFilterAttribute(int minLength, int maxLength = int.MaxValue)
+        : base(new TextLengthFilter(minLength, maxLength))
+    {
+    }
+
+    public override UpdateType[] AllowedTypes => [UpdateType.Message];
+
+    public override Message? GetFilterringTarget(Update update)
+        => update.Message;
+}
+
+public class TextLengthFilter : Filter<Message>
+{
+    private readonly int _minLength;
+    private readonly int _maxLength;
+
+    public TextLengthFilter(int minLength, int maxLength)
+    {
+        _minLength = minLength;
+        _maxLength = maxLength;
+    }
+
+    public override bool CanPass(FilterExecutionContext<Message> context)
+    {
+        var textLength = context.Input?.Text?.Length ?? 0;
+        return textLength >= _minLength && textLength <= _maxLength;
+    }
+}
+```
+
+## Using Functional Filters
+
+For simple filtering logic, you can use `Filter<T>.If()` to create filters from lambda expressions:
+
+```csharp
+public class QuickFilterAttribute : UpdateFilterAttribute<Message>
+{
+    public QuickFilterAttribute()
+        : base(Filter<Message>.If(ctx => 
+            ctx.Input?.Text?.StartsWith("!") ?? false))
+    {
+    }
+
+    public override UpdateType[] AllowedTypes => [UpdateType.Message];
+    
+    public override Message? GetFilterringTarget(Update update)
+        => update.Message;
+}
+```
+
+## Accessing Filter Execution Context
+
+The `FilterExecutionContext<T>` provides rich information during filter execution:
+
+```csharp
+public class ContextAwareFilter : Filter<Message>
+{
+    public override bool CanPass(FilterExecutionContext<Message> context)
+    {
+        // Access the input being filtered
+        var message = context.Input;
+        
+        // Access the original update
+        var update = context.Update;
+        
+        // Access bot information
+        var botInfo = context.BotInfo;
+        
+        // Access custom data passed during filtering
+        if (context.Data.TryGetValue("custom_key", out var value))
+        {
+            // Use custom data in filtering logic
+        }
+        
+        // Access completed filters list
+        var previousFilters = context.CompletedFiltersList;
+        
+        return true;
+    }
+}
+```
+
+## Best Practices
+
+<Tip>
+  **Keep filters focused**: Each filter should check one specific condition. Compose multiple filters for complex logic.
+</Tip>
+
+<Tip>
+  **Use meaningful names**: Name your filter attributes descriptively (e.g., `FromAdminUserAttribute`, `ContainsMediaAttribute`).
+</Tip>
+
+<Warning>
+  **Avoid heavy operations**: Filters are executed frequently during routing. Keep filtering logic lightweight and fast.
+</Warning>
+
+<Note>
+  **Filter collectability**: Filters with public properties are automatically collectible, meaning they can be tracked in the `CompletedFiltersList`.
+</Note>
+
+## Advanced: Logical Filter Combinations
+
+You can create complex filter logic using the built-in filter operators:
+
+```csharp
+public class AdvancedFilterAttribute : UpdateFilterAttribute<Message>
+{
+    public AdvancedFilterAttribute()
+        : base(CreateComplexFilter())
+    {
+    }
+
+    private static IFilter<Message> CreateComplexFilter()
+    {
+        var lengthFilter = new TextLengthFilter(10, 100);
+        var keywordFilter = new ContainsKeywordFilter("important");
+        var userFilter = new FromVerifiedUserFilter();
+
+        // (lengthFilter AND keywordFilter) OR userFilter
+        return lengthFilter.And(keywordFilter).Or(userFilter);
+    }
+
+    public override UpdateType[] AllowedTypes => [UpdateType.Message];
+    
+    public override Message? GetFilterringTarget(Update update)
+        => update.Message;
+}
+```
+
+## Testing Custom Filters
+
+When testing custom filters, create a `FilterExecutionContext` with test data:
+
+```csharp
+[Fact]
+public void TestCustomFilter()
+{
+    var filter = new TextLengthFilter(5, 20);
+    var message = new Message { Text = "Hello World" };
+    var update = new Update { Message = message };
+    
+    var context = new FilterExecutionContext<Message>(
+        botInfo: mockBotInfo,
+        update: update,
+        input: message,
+        data: new Dictionary<string, object>(),
+        completedFilters: []
+    );
+    
+    var result = filter.CanPass(context);
+    Assert.True(result);
+}
+```

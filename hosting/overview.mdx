@@ -1,0 +1,115 @@
+---
+title: Hosting Overview
+description: Introduction to Telegrator hosting packages for .NET applications
+---
+
+Telegrator provides two hosting packages that integrate seamlessly with .NET's hosting infrastructure:
+
+- **Telegrator.Hosting** - For console applications and services using .NET Generic Host
+- **Telegrator.Hosting.Web** - For ASP.NET Core applications with webhook support
+
+## When to Use Each Package
+
+### Telegrator.Hosting
+
+Use this package when building:
+
+- Console applications
+- Windows Services
+- Linux daemons
+- Background services
+- Applications that receive updates via **long polling**
+
+Long polling is ideal for:
+- Development and testing
+- Bots running on local machines
+- Scenarios where you can't expose a public endpoint
+- Simple deployments without webhook configuration
+
+### Telegrator.Hosting.Web
+
+Use this package when building:
+
+- ASP.NET Core web applications
+- Applications deployed to cloud platforms
+- Bots that need to handle high update volumes
+- Applications that receive updates via **webhooks**
+
+Webhooks are ideal for:
+- Production deployments
+- Better scalability and performance
+- Lower latency for update delivery
+- Integration with existing ASP.NET Core apps
+
+## Key Concepts
+
+### TelegramBotHost
+
+Both packages provide a host abstraction that:
+
+- Integrates with Microsoft.Extensions.Hosting
+- Provides dependency injection support
+- Manages bot lifetime and update routing
+- Configures logging and services
+
+### TelegramBotHostBuilder
+
+A builder pattern for configuring your bot:
+
+```csharp
+public interface ITelegramBotHostBuilder
+{
+    IConfigurationManager Configuration { get; }
+    ILoggingBuilder Logging { get; }
+    IServiceCollection Services { get; }
+    IHandlersCollection Handlers { get; }
+}
+```
+
+The builder exposes:
+- **Configuration** - Configure app settings and options
+- **Logging** - Add logging providers
+- **Services** - Register services for dependency injection
+- **Handlers** - Register update handlers
+
+### Update Receiving
+
+<CardGroup cols={2}>
+  <Card title="Long Polling" icon="arrows-rotate">
+    Continuously polls Telegram servers for updates. Configured automatically in `Telegrator.Hosting`.
+  </Card>
+  <Card title="Webhooks" icon="webhook">
+    Telegram pushes updates to your endpoint. Configured in `Telegrator.Hosting.Web` with ASP.NET Core routing.
+  </Card>
+</CardGroup>
+
+## Installation
+
+<CodeGroup>
+```bash .NET CLI (Console)
+dotnet add package Telegrator.Hosting
+```
+
+```bash .NET CLI (Web)
+dotnet add package Telegrator.Hosting.Web
+```
+
+```xml PackageReference (Console)
+<PackageReference Include="Telegrator.Hosting" Version="*" />
+```
+
+```xml PackageReference (Web)
+<PackageReference Include="Telegrator.Hosting.Web" Version="*" />
+```
+</CodeGroup>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Console Applications" icon="terminal" href="/hosting/console-apps">
+    Learn how to use Telegrator.Hosting with .NET Generic Host
+  </Card>
+  <Card title="ASP.NET Core" icon="globe" href="/hosting/aspnet-core">
+    Learn how to use Telegrator.Hosting.Web with webhooks
+  </Card>
+</CardGroup>

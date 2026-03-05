@@ -1,0 +1,327 @@
+---
+title: CallbackQueryHandler
+description: Handler for processing callback query updates from inline keyboard interactions
+---
+
+## Overview
+
+`CallbackQueryHandler` is an abstract base class for handlers that process callback query updates. This handler is triggered when users interact with inline keyboards or other callback mechanisms.
+
+## Attribute
+
+```csharp
+[CallbackQueryHandler(importance: 0)]
+```
+
+<ParamField path="importance" type="int" default="0">
+  The importance level of the handler. Higher values are executed first.
+</ParamField>
+
+## Base Class
+
+```csharp
+public abstract class CallbackQueryHandler : AbstractUpdateHandler<CallbackQuery>
+```
+
+Inherits from `AbstractUpdateHandler<CallbackQuery>` with `UpdateType.CallbackQuery`.
+
+## Properties
+
+The following properties are inherited from `AbstractUpdateHandler<CallbackQuery>`:
+
+<ParamField path="Container" type="IHandlerContainer<CallbackQuery>">
+  Handler container for the current update.
+</ParamField>
+
+<ParamField path="Client" type="ITelegramBotClient">
+  Telegram Bot client associated with the current container.
+</ParamField>
+
+<ParamField path="Input" type="CallbackQuery">
+  Incoming callback query update.
+</ParamField>
+
+<ParamField path="TypeData" type="string">
+  Gets the type-specific data from the callback query. Returns the data string, chat instance, or game short name depending on the callback query type.
+</ParamField>
+
+<ParamField path="HandlingUpdate" type="Update">
+  The Telegram update being handled.
+</ParamField>
+
+<ParamField path="ExtraData" type="Dictionary<string, object>">
+  Additional data associated with the handler execution.
+</ParamField>
+
+<ParamField path="CompletedFilters" type="CompletedFiltersList">
+  List of successfully passed filters.
+</ParamField>
+
+<ParamField path="AwaitingProvider" type="IAwaitingProvider">
+  Provider for awaiting asynchronous operations.
+</ParamField>
+
+## Methods
+
+### Execute
+
+```csharp
+public abstract Task<Result> Execute(
+    IHandlerContainer<CallbackQuery> container,
+    CancellationToken cancellation
+)
+```
+
+Abstract method to implement your callback query handling logic.
+
+<ParamField path="container" type="IHandlerContainer<CallbackQuery>" required>
+  The handler container with callback query data.
+</ParamField>
+
+<ParamField path="cancellation" type="CancellationToken" required>
+  Cancellation token for the operation.
+</ParamField>
+
+**Returns:** `Task<Result>` - A result indicating success, fault, or continuation.
+
+### Answer
+
+```csharp
+protected async Task Answer(
+    string? text = null,
+    bool showAlert = false,
+    string? url = null,
+    int cacheTime = 0,
+    CancellationToken cancellationToken = default
+)
+```
+
+Answers the current callback query with optional alert or message.
+
+<ParamField path="text" type="string">
+  The text to display in the callback answer. Can show a toast notification or alert.
+</ParamField>
+
+<ParamField path="showAlert" type="bool" default="false">
+  Whether to show an alert popup instead of a toast notification.
+</ParamField>
+
+<ParamField path="url" type="string">
+  A URL that will be opened by the client.
+</ParamField>
+
+<ParamField path="cacheTime" type="int" default="0">
+  The maximum amount of time in seconds that the result of the callback query may be cached client-side.
+</ParamField>
+
+**Returns:** `Task` - Completes when the answer is sent.
+
+### Response
+
+```csharp
+protected async Task<Message> Response(
+    string text,
+    ParseMode parseMode = ParseMode.None,
+    ReplyParameters? replyParameters = null,
+    ReplyMarkup? replyMarkup = null,
+    LinkPreviewOptions? linkPreviewOptions = null,
+    int? messageThreadId = null,
+    IEnumerable<MessageEntity>? entities = null,
+    bool disableNotification = false,
+    bool protectContent = false,
+    string? messageEffectId = null,
+    string? businessConnectionId = null,
+    bool allowPaidBroadcast = false,
+    int? directMessageTopicId = null,
+    SuggestedPostParameters? suggestedPostParameters = null,
+    CancellationToken cancellationToken = default
+)
+```
+
+Sends a response message to the current chat.
+
+<ParamField path="text" type="string" required>
+  The text of the message to send.
+</ParamField>
+
+<ParamField path="parseMode" type="ParseMode" default="ParseMode.None">
+  The parse mode for the message text.
+</ParamField>
+
+<ParamField path="replyMarkup" type="ReplyMarkup">
+  The reply markup for the message.
+</ParamField>
+
+**Returns:** `Task<Message>` - The sent message.
+
+### EditMessage
+
+```csharp
+protected async Task<Message> EditMessage(
+    string text,
+    ParseMode parseMode = ParseMode.None,
+    InlineKeyboardMarkup? replyMarkup = null,
+    IEnumerable<MessageEntity>? entities = null,
+    LinkPreviewOptions? linkPreviewOptions = null,
+    CancellationToken cancellationToken = default
+)
+```
+
+Edits the current callback message with new text.
+
+<ParamField path="text" type="string" required>
+  The new text of the message.
+</ParamField>
+
+<ParamField path="parseMode" type="ParseMode" default="ParseMode.None">
+  The parse mode for the message text.
+</ParamField>
+
+<ParamField path="replyMarkup" type="InlineKeyboardMarkup">
+  The new inline keyboard markup for the message.
+</ParamField>
+
+**Returns:** `Task<Message>` - The edited message.
+
+## Examples
+
+### Basic Callback Handler
+
+```csharp
+using Telegrator.Handlers;
+using Telegrator.Filters;
+using Telegram.Bot.Types.Enums;
+
+[CallbackQueryHandler]
+[CallbackDataFilter("confirm")]
+public class ConfirmHandler : CallbackQueryHandler
+{
+    public override async Task<Result> Execute(
+        IHandlerContainer<CallbackQuery> container,
+        CancellationToken cancellation)
+    {
+        // Answer the callback query
+        await Answer("Action confirmed!", showAlert: false);
+
+        // Edit the message
+        await EditMessage(
+            "✅ Confirmed",
+            parseMode: ParseMode.Html
+        );
+
+        return Result.Ok();
+    }
+}
+```
+
+### Callback with Data Parsing
+
+```csharp
+[CallbackQueryHandler]
+[CallbackDataFilter(startsWith: "action:")]
+public class ActionHandler : CallbackQueryHandler
+{
+    public override async Task<Result> Execute(
+        IHandlerContainer<CallbackQuery> container,
+        CancellationToken cancellation)
+    {
+        // TypeData contains the callback data
+        string action = TypeData.Replace("action:", "");
+
+        await Answer($"Processing action: {action}");
+
+        // Perform action based on data
+        switch (action)
+        {
+            case "delete":
+                await EditMessage("❌ Deleted");
+                break;
+            case "edit":
+                await EditMessage("✏️ Ready to edit");
+                break;
+            default:
+                await Answer("Unknown action", showAlert: true);
+                break;
+        }
+
+        return Result.Ok();
+    }
+}
+```
+
+### Pagination with Inline Keyboard
+
+```csharp
+[CallbackQueryHandler]
+[CallbackDataFilter(startsWith: "page:")]
+public class PaginationHandler : CallbackQueryHandler
+{
+    public override async Task<Result> Execute(
+        IHandlerContainer<CallbackQuery> container,
+        CancellationToken cancellation)
+    {
+        // Extract page number from callback data
+        string pageStr = TypeData.Replace("page:", "");
+        if (!int.TryParse(pageStr, out int page))
+        {
+            await Answer("Invalid page", showAlert: true);
+            return Result.Ok();
+        }
+
+        // Create new keyboard with updated page
+        var keyboard = new InlineKeyboardMarkup(new[]
+        {
+            new[]
+            {
+                InlineKeyboardButton.WithCallbackData("← Previous", $"page:{page - 1}"),
+                InlineKeyboardButton.WithCallbackData("Next →", $"page:{page + 1}")
+            }
+        });
+
+        // Edit message with new content
+        await EditMessage(
+            $"Page {page}\n\nContent for page {page}...",
+            replyMarkup: keyboard
+        );
+
+        // Answer to remove loading state
+        await Answer();
+
+        return Result.Ok();
+    }
+}
+```
+
+### Alert Popup
+
+```csharp
+[CallbackQueryHandler]
+[CallbackDataFilter("warning")]
+public class WarningHandler : CallbackQueryHandler
+{
+    public override async Task<Result> Execute(
+        IHandlerContainer<CallbackQuery> container,
+        CancellationToken cancellation)
+    {
+        await Answer(
+            "⚠️ This action cannot be undone!",
+            showAlert: true
+        );
+
+        return Result.Ok();
+    }
+}
+```
+
+## Best Practices
+
+1. **Always answer callback queries**: Failing to call `Answer()` will leave the button in a loading state.
+2. **Use showAlert sparingly**: Alerts interrupt the user experience; use them only for important notifications.
+3. **Edit messages efficiently**: Use `EditMessage()` to update existing messages rather than sending new ones.
+4. **Structure callback data**: Use prefixes or delimiters to encode multiple pieces of information in callback data.
+
+## See Also
+
+- [CallbackDataFilter](/api/filters/callback-data-filter) - Filter for callback data patterns
+- [Result](/api/handlers/result) - Handler result types
+- [InlineKeyboardMarkup](https://core.telegram.org/bots/api#inlinekeyboardmarkup) - Telegram inline keyboard documentation

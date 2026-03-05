@@ -1,0 +1,530 @@
+---
+title: Concurrency Control
+description: Learn how to control concurrent handler execution with MightAwait, MaximumParallelWorkingHandlers, and update awaiting in Telegrator
+---
+
+# Concurrency Control
+
+Telegrator provides powerful concurrency control mechanisms to manage how your bot handles multiple simultaneous updates. This is crucial for preventing race conditions, managing resources, and implementing sequential flows.
+
+## Understanding Concurrency in Telegrator
+
+By default, Telegrator processes multiple updates in parallel. While this maximizes throughput, it can cause issues when:
+
+- Multiple updates from the same user arrive simultaneously
+- Handlers access shared resources
+- You need to ensure sequential processing
+- Resource limits need to be enforced
+
+## Maximum Parallel Working Handlers
+
+Control the maximum number of handlers that can execute simultaneously using `MaximumParallelWorkingHandlers`:
+
+```csharp
+using Telegrator;
+
+var options = new TelegratorOptions
+{
+    // Limit to 10 concurrent handlers
+    MaximumParallelWorkingHandlers = 10
+};
+
+var bot = new TelegratorClient("YOUR_BOT_TOKEN", options);
+bot.Handlers.AddHandler<MyHandler>();
+bot.StartReceiving();
+```
+
+### When to Use
+
+<CardGroup cols={2}>
+  <Card title="Limited Resources" icon="server">
+    When your bot uses limited resources like database connections or API rate limits
+  </Card>
+  <Card title="CPU-Intensive Tasks" icon="microchip">
+    When handlers perform heavy computations that could overwhelm the system
+  </Card>
+  <Card title="External Service Limits" icon="link">
+    When you're calling external APIs with rate limiting
+  </Card>
+  <Card title="Memory Management" icon="memory">
+    When each handler uses significant memory and you need to prevent OOM errors
+  </Card>
+</CardGroup>
+
+### Example: Rate-Limited Bot
+
+```csharp
+// Bot that calls an external API with rate limiting
+var options = new TelegratorOptions
+{
+    // API allows 5 concurrent requests
+    MaximumParallelWorkingHandlers = 5
+};
+
+var bot = new TelegratorClient(token, options);
+
+[MessageHandler]
+public class ApiCallHandler : MessageHandler
+{
+    private readonly HttpClient _httpClient;
+    
+    public override async Task<Result> Execute(
+        IHandlerContainer<Message> container,
+        CancellationToken cancellation)
+    {
+        // This will never have more than 5 instances running at once
+        var response = await _httpClient.GetAsync(
+            "https://api.example.com/data",
+            cancellation);
+        
+        var data = await response.Content.ReadAsStringAsync(cancellation);
+        await Reply(data, cancellationToken: cancellation);
+        
+        return Result.Ok();
+    }
+}
+```
+
+<Note>
+Setting `MaximumParallelWorkingHandlers` to `null` (default) allows unlimited concurrent handlers.
+Setting it to `1` makes all handler execution sequential.
+</Note>
+
+## Handler-Level Concurrency Control
+
+Control concurrency at the handler level using the `Importance` parameter:
+
+```csharp
+using Telegrator.Handlers;
+using Telegrator.Annotations;
+
+// This handler has importance level 5
+// Lower importance = less concurrency priority
+[MessageHandler(importance: 5)]
+public class HighPriorityHandler : MessageHandler
+{
+    public override async Task<Result> Execute(
+        IHandlerContainer<Message> container,
+        CancellationToken cancellation)
+    {
+        // Critical operations
+        await Reply("Processing high priority task", cancellationToken: cancellation);
+        return Result.Ok();
+    }
+}
+
+// Lower importance, will be queued if concurrency limit is reached
+[MessageHandler(importance: 1)]
+public class LowPriorityHandler : MessageHandler
+{
+    public override async Task<Result> Execute(
+        IHandlerContainer<Message> container,
+        CancellationToken cancellation)
+    {
+        await Reply("Processing low priority task", cancellationToken: cancellation);
+        return Result.Ok();
+    }
+}
+```
+
+## Awaiting Updates: MightAwait Attribute
+
+The `[MightAwait]` attribute tells Telegrator that a handler might wait for other update types. This is crucial for multi-step interactions.
+
+### Basic Update Awaiting
+
+```csharp
+using Telegram.Bot.Types.Enums;
+using Telegrator.Attributes;
+
+[CommandHandler]
+[CommandAllias("upload")]
+[MightAwait(UpdateType.Message)] // This handler might await a message
+public class UploadCommandHandler : CommandHandler
+{
+    public override async Task<Result> Execute(
+        IHandlerContainer<Message> container,
+        CancellationToken cancellation)
+    {
+        await Reply("Please send me a file to upload.", cancellationToken: cancellation);
+        
+        // Wait for the next message from this user
+        var fileMessage = await AwaitingProvider
+            .Message(HandlingUpdate)
+            .AddFilter(Filter<Update>.If(ctx => 
+                ctx.Input.Message?.Document != null))
+            .Await(cancellation);
+        
+        // Process the file
+        var fileName = fileMessage.Document?.FileName ?? "unknown";
+        await Reply($"Received file: {fileName}", cancellationToken: cancellation);
+        
+        return Result.Ok();
+    }
+}
+```
+
+<Warning>
+If you don't add `[MightAwait]`, the awaited update types won't be routed to your bot, 
+and `Await()` will hang indefinitely!
+</Warning>
+
+### Multiple Update Types
+
+Await multiple update types:
+
+```csharp
+[CommandHandler]
+[CommandAllias("feedback")]
+[MightAwait(UpdateType.Message, UpdateType.CallbackQuery)]
+public class FeedbackHandler : CommandHandler
+{
+    public override async Task<Result> Execute(
+        IHandlerContainer<Message> container,
+        CancellationToken cancellation)
+    {
+        var keyboard = new InlineKeyboardMarkup(new[]
+        {
+            InlineKeyboardButton.WithCallbackData("👍 Good", "feedback_good"),
+            InlineKeyboardButton.WithCallbackData("👎 Bad", "feedback_bad")
+        });
+        
+        await Reply(
+            "How would you rate our service?",
+            replyMarkup: keyboard,
+            cancellationToken: cancellation);
+        
+        // Wait for either a callback query or a text message
+        var callbackQuery = await AwaitingProvider
+            .CallbackQuery(HandlingUpdate)
+            .AddFilter(Filter<Update>.If(ctx =>
+                ctx.Input.CallbackQuery?.Data?.StartsWith("feedback_") == true))
+            .Await(cancellation);
+        
+        string feedback = callbackQuery.Data ?? "unknown";
+        await Client.SendTextMessageAsync(
+            Input.Chat.Id,
+            $"Thanks for your feedback: {feedback}",
+            cancellationToken: cancellation);
+        
+        return Result.Ok();
+    }
+}
+```
+
+## Await with Filters
+
+Add filters to awaited updates to ensure you receive the expected data:
+
+```csharp
+[CommandHandler]
+[CommandAllias("guess")]
+[MightAwait(UpdateType.Message)]
+public class GuessingGameHandler : CommandHandler
+{
+    public override async Task<Result> Execute(
+        IHandlerContainer<Message> container,
+        CancellationToken cancellation)
+    {
+        var random = new Random();
+        int targetNumber = random.Next(1, 11);
+        
+        await Reply("I'm thinking of a number between 1 and 10. Guess it!", 
+            cancellationToken: cancellation);
+        
+        while (!cancellation.IsCancellationRequested)
+        {
+            // Wait for a message containing a number
+            var guessMessage = await AwaitingProvider
+                .Message(HandlingUpdate)
+                .AddFilter(Filter<Update>.If(ctx =>
+                {
+                    var text = ctx.Input.Message?.Text;
+                    return text != null && int.TryParse(text, out _);
+                }))
+                .Await(cancellation);
+            
+            int guess = int.Parse(guessMessage.Text ?? "0");
+            
+            if (guess == targetNumber)
+            {
+                await Client.SendTextMessageAsync(
+                    Input.Chat.Id,
+                    $"🎉 Correct! The number was {targetNumber}!",
+                    cancellationToken: cancellation);
+                break;
+            }
+            else if (guess < targetNumber)
+            {
+                await Client.SendTextMessageAsync(
+                    Input.Chat.Id,
+                    "📈 Too low! Try again.",
+                    cancellationToken: cancellation);
+            }
+            else
+            {
+                await Client.SendTextMessageAsync(
+                    Input.Chat.Id,
+                    "📉 Too high! Try again.",
+                    cancellationToken: cancellation);
+            }
+        }
+        
+        return Result.Ok();
+    }
+}
+```
+
+## Await with Custom Key Resolvers
+
+By default, awaiting is user-specific. Customize this behavior:
+
+```csharp
+using Telegrator.StateKeeping;
+
+[CommandHandler]
+[CommandAllias("groupvote")]
+[MightAwait(UpdateType.Message)]
+public class GroupVoteHandler : CommandHandler
+{
+    public override async Task<Result> Execute(
+        IHandlerContainer<Message> container,
+        CancellationToken cancellation)
+    {
+        await Reply("Starting group vote! Reply with your choice.", 
+            cancellationToken: cancellation);
+        
+        // Wait for ANY user in this chat (not just the command sender)
+        var voteMessage = await AwaitingProvider
+            .Message(HandlingUpdate)
+            .Await(new ChatIdResolver(), cancellation);
+        
+        await Reply(
+            $"Vote received from {voteMessage.From?.FirstName}: {voteMessage.Text}",
+            cancellationToken: cancellation);
+        
+        return Result.Ok();
+    }
+}
+```
+
+## Await with Timeout
+
+Use `CancellationToken` to implement timeouts:
+
+```csharp
+[CommandHandler]
+[CommandAllias("quickquiz")]
+[MightAwait(UpdateType.Message)]
+public class QuickQuizHandler : CommandHandler
+{
+    public override async Task<Result> Execute(
+        IHandlerContainer<Message> container,
+        CancellationToken cancellation)
+    {
+        await Reply("Quick! What is 2 + 2? (You have 10 seconds)", 
+            cancellationToken: cancellation);
+        
+        using var timeoutCts = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+        using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(
+            cancellation, timeoutCts.Token);
+        
+        try
+        {
+            var answerMessage = await AwaitingProvider
+                .Message(HandlingUpdate)
+                .Await(linkedCts.Token);
+            
+            if (answerMessage.Text == "4")
+            {
+                await Reply("✅ Correct!", cancellationToken: cancellation);
+            }
+            else
+            {
+                await Reply("❌ Wrong! The answer is 4.", cancellationToken: cancellation);
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            if (timeoutCts.IsCancellationRequested)
+            {
+                await Reply("⏱️ Time's up! The answer was 4.", cancellationToken: cancellation);
+            }
+            else
+            {
+                throw; // Global cancellation
+            }
+        }
+        
+        return Result.Ok();
+    }
+}
+```
+
+## Exclusive Awaiting Handler Routing
+
+Control whether awaiting handlers receive updates exclusively:
+
+```csharp
+var options = new TelegratorOptions
+{
+    // When true, updates go ONLY to awaiting handlers (not regular handlers)
+    // When false, updates go to both awaiting and regular handlers
+    ExclusiveAwaitingHandlerRouting = true
+};
+
+var bot = new TelegratorClient(token, options);
+```
+
+### When to Use Exclusive Routing
+
+- **true**: When you want awaited updates to be handled ONLY by the awaiting handler
+- **false**: When you want normal handlers to also process updates during awaits
+
+<CodeGroup>
+```csharp Exclusive = true
+// With ExclusiveAwaitingHandlerRouting = true
+
+[CommandHandler]
+[CommandAllias("ask")]
+[MightAwait(UpdateType.Message)]
+public class AskHandler : CommandHandler
+{
+    public override async Task<Result> Execute(
+        IHandlerContainer<Message> container,
+        CancellationToken cancellation)
+    {
+        await Reply("What's your name?", cancellationToken: cancellation);
+        
+        // The next message will ONLY go to this awaiter,
+        // not to any other MessageHandler
+        var response = await AwaitingProvider
+            .Message(HandlingUpdate)
+            .Await(cancellation);
+        
+        await Reply($"Hello, {response.Text}!", cancellationToken: cancellation);
+        return Result.Ok();
+    }
+}
+
+[MessageHandler] // This handler WON'T receive the awaited message
+public class EchoHandler : MessageHandler
+{
+    public override async Task<Result> Execute(
+        IHandlerContainer<Message> container,
+        CancellationToken cancellation)
+    {
+        await Reply($"Echo: {Input.Text}", cancellationToken: cancellation);
+        return Result.Ok();
+    }
+}
+```
+
+```csharp Exclusive = false
+// With ExclusiveAwaitingHandlerRouting = false
+
+[CommandHandler]
+[CommandAllias("ask")]
+[MightAwait(UpdateType.Message)]
+public class AskHandler : CommandHandler
+{
+    public override async Task<Result> Execute(
+        IHandlerContainer<Message> container,
+        CancellationToken cancellation)
+    {
+        await Reply("What's your name?", cancellationToken: cancellation);
+        
+        // The next message will go to BOTH this awaiter
+        // AND other matching MessageHandlers
+        var response = await AwaitingProvider
+            .Message(HandlingUpdate)
+            .Await(cancellation);
+        
+        await Reply($"Hello, {response.Text}!", cancellationToken: cancellation);
+        return Result.Ok();
+    }
+}
+
+[MessageHandler] // This handler WILL ALSO receive the awaited message
+public class EchoHandler : MessageHandler
+{
+    public override async Task<Result> Execute(
+        IHandlerContainer<Message> container,
+        CancellationToken cancellation)
+    {
+        await Reply($"Echo: {Input.Text}", cancellationToken: cancellation);
+        return Result.Ok();
+    }
+}
+```
+</CodeGroup>
+
+## Global Cancellation Token
+
+Provide a global cancellation token for graceful shutdown:
+
+```csharp
+var cancellationTokenSource = new CancellationTokenSource();
+
+var options = new TelegratorOptions
+{
+    GlobalCancellationToken = cancellationTokenSource.Token
+};
+
+var bot = new TelegratorClient(token, options);
+bot.StartReceiving();
+
+// Later, to shut down gracefully:
+cancellationTokenSource.Cancel();
+```
+
+## Best Practices
+
+1. **Always use MightAwait** - Forgetting it will cause awaits to hang
+2. **Add timeouts to awaits** - Users may abandon conversations
+3. **Filter awaited updates** - Ensure you receive the expected data format
+4. **Consider exclusive routing** - Choose based on your use case
+5. **Set appropriate concurrency limits** - Balance throughput with resource usage
+6. **Handle cancellation gracefully** - Clean up resources when operations are cancelled
+7. **Test concurrent scenarios** - Use load testing to find optimal settings
+
+## Concurrency Patterns
+
+### Pattern 1: Sequential Processing
+
+```csharp
+// Force all handlers to execute sequentially
+var options = new TelegratorOptions
+{
+    MaximumParallelWorkingHandlers = 1
+};
+```
+
+### Pattern 2: User-Isolated Concurrency
+
+```csharp
+// Multiple users can be processed in parallel,
+// but each user's messages are processed sequentially
+// (Implement using custom concurrency control in handlers)
+```
+
+### Pattern 3: Resource-Limited Concurrency
+
+```csharp
+// Limit based on available resources
+var options = new TelegratorOptions
+{
+    MaximumParallelWorkingHandlers = Environment.ProcessorCount * 2
+};
+```
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Aspect-Oriented Programming" icon="layer-group" href="/guides/aspect-oriented-programming">
+    Learn how to add cross-cutting concerns with pre and post processors
+  </Card>
+  <Card title="Handler Builder" icon="wrench" href="/guides/handler-builder">
+    Explore the fluent API for building handlers programmatically
+  </Card>
+</CardGroup>

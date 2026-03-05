@@ -1,0 +1,586 @@
+---
+title: "Error Handling"
+description: "Comprehensive guide to error handling patterns and exception management in Telegrator"
+---
+
+## Overview
+
+Telegrator provides a robust error handling system through the `IRouterExceptionHandler` interface and built-in exception handling mechanisms. This guide covers error handling strategies, custom exception handlers, and best practices.
+
+## The IRouterExceptionHandler Interface
+
+From `/home/daytona/workspace/source/Telegrator/MadiatorCore/IRouterExceptionHandler.cs`:
+
+```csharp
+public interface IRouterExceptionHandler
+{
+    /// <summary>
+    /// Handles exceptions that occur during update routing.
+    /// </summary>
+    void HandleException(
+        ITelegramBotClient botClient, 
+        Exception exception, 
+        HandleErrorSource source, 
+        CancellationToken cancellationToken);
+}
+```
+
+### Error Sources
+
+The `HandleErrorSource` enum indicates where the error originated:
+
+- `PollingError`: Errors during update polling/receiving
+- `HandleUpdateError`: Errors during handler execution
+
+## Built-in Exception Handler
+
+Telegrator provides `DefaultRouterExceptionHandler` which wraps a delegate (from `/home/daytona/workspace/source/Telegrator/Polling/DefaultRouterExceptionHandler.cs:20`):
+
+```csharp
+public sealed class DefaultRouterExceptionHandler : IRouterExceptionHandler
+{
+    private readonly RouterExceptionHandler _handler;
+
+    public DefaultRouterExceptionHandler(RouterExceptionHandler handler)
+    {
+        _handler = handler;
+    }
+
+    public void HandleException(
+        ITelegramBotClient botClient, 
+        Exception exception, 
+        HandleErrorSource source, 
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            _handler.Invoke(botClient, exception, source, cancellationToken);
+        }
+        finally
+        {
+            _ = 0xBAD + 0xC0DE;
+        }
+    }
+}
+```
+
+## Setting Up Error Handling
+
+### Basic Error Handler
+
+```csharp
+using Microsoft.Extensions.Logging;
+using Telegram.Bot;
+using Telegram.Bot.Polling;
+using Telegrator.MadiatorCore;
+
+public class BasicExceptionHandler : IRouterExceptionHandler
+{
+    private readonly ILogger<BasicExceptionHandler> _logger;
+
+    public BasicExceptionHandler(ILogger<BasicExceptionHandler> logger)
+    {
+        _logger = logger;
+    }
+
+    public void HandleException(
+        ITelegramBotClient botClient,
+        Exception exception,
+        HandleErrorSource source,
+        CancellationToken cancellationToken)
+    {
+        _logger.LogError(exception, 
+            "Error occurred from source {Source}", source);
+    }
+}
+```
+
+### Registering the Exception Handler
+
+```csharp
+var router = serviceProvider.GetRequiredService<IUpdateRouter>();
+router.ExceptionHandler = new BasicExceptionHandler(logger);
+```
+
+Or using dependency injection:
+
+```csharp
+services.AddSingleton<IRouterExceptionHandler, BasicExceptionHandler>();
+
+// In your bot setup
+var exceptionHandler = serviceProvider.GetRequiredService<IRouterExceptionHandler>();
+router.ExceptionHandler = exceptionHandler;
+```
+
+## Advanced Exception Handling
+
+### Handling Different Exception Types
+
+```csharp
+public class TypedExceptionHandler : IRouterExceptionHandler
+{
+    private readonly ILogger<TypedExceptionHandler> _logger;
+    private readonly ITelegramBotClient _botClient;
+
+    public TypedExceptionHandler(
+        ILogger<TypedExceptionHandler> logger,
+        ITelegramBotClient botClient)
+    {
+        _logger = logger;
+        _botClient = botClient;
+    }
+
+    public void HandleException(
+        ITelegramBotClient botClient,
+        Exception exception,
+        HandleErrorSource source,
+        CancellationToken cancellationToken)
+    {
+        switch (exception)
+        {
+            case ApiRequestException apiEx:
+                HandleApiException(apiEx, source, cancellationToken);
+                break;
+                
+            case TaskCanceledException:
+                _logger.LogInformation("Request was cancelled");
+                break;
+                
+            case HttpRequestException httpEx:
+                HandleNetworkException(httpEx, source);
+                break;
+                
+            case ArgumentException argEx:
+                HandleValidationException(argEx, source);
+                break;
+                
+            default:
+                HandleUnknownException(exception, source);
+                break;
+        }
+    }
+
+    private void HandleApiException(
+        ApiRequestException exception,
+        HandleErrorSource source,
+        CancellationToken cancellationToken)
+    {
+        _logger.LogError(exception,
+            "Telegram API error: {ErrorCode} - {Message}",
+            exception.ErrorCode,
+            exception.Message);
+
+        // Handle specific API errors
+        switch (exception.ErrorCode)
+        {
+            case 403:
+                _logger.LogWarning("Bot was blocked by user or lacks permissions");
+                break;
+                
+            case 429:
+                _logger.LogWarning("Rate limit exceeded. Retry after {RetryAfter}s",
+                    exception.Parameters?.RetryAfter ?? 0);
+                break;
+                
+            case 400:
+                _logger.LogError("Bad request: {Message}", exception.Message);
+                break;
+        }
+    }
+
+    private void HandleNetworkException(
+        HttpRequestException exception,
+        HandleErrorSource source)
+    {
+        _logger.LogError(exception,
+            "Network error from source {Source}", source);
+        // Implement retry logic or circuit breaker pattern
+    }
+
+    private void HandleValidationException(
+        ArgumentException exception,
+        HandleErrorSource source)
+    {
+        _logger.LogWarning(exception,
+            "Validation error from source {Source}", source);
+    }
+
+    private void HandleUnknownException(
+        Exception exception,
+        HandleErrorSource source)
+    {
+        _logger.LogError(exception,
+            "Unexpected error from source {Source}: {Message}",
+            source,
+            exception.Message);
+    }
+}
+```
+
+### Exception Handler with Notifications
+
+```csharp
+public class NotifyingExceptionHandler : IRouterExceptionHandler
+{
+    private readonly ILogger<NotifyingExceptionHandler> _logger;
+    private readonly long _adminChatId;
+
+    public NotifyingExceptionHandler(
+        ILogger<NotifyingExceptionHandler> logger,
+        IConfiguration configuration)
+    {
+        _logger = logger;
+        _adminChatId = long.Parse(
+            configuration["Bot:AdminChatId"] ?? 
+            throw new InvalidOperationException("AdminChatId not configured"));
+    }
+
+    public void HandleException(
+        ITelegramBotClient botClient,
+        Exception exception,
+        HandleErrorSource source,
+        CancellationToken cancellationToken)
+    {
+        _logger.LogError(exception, 
+            "Error from {Source}", source);
+
+        // Don't notify for common, non-critical errors
+        if (exception is OperationCanceledException or TaskCanceledException)
+            return;
+
+        // Notify admin of critical errors
+        try
+        {
+            var message = $"⚠️ Bot Error\n" +
+                         $"Source: {source}\n" +
+                         $"Type: {exception.GetType().Name}\n" +
+                         $"Message: {exception.Message}";
+
+            botClient.SendTextMessageAsync(
+                _adminChatId,
+                message,
+                cancellationToken: cancellationToken).Wait(cancellationToken);
+        }
+        catch (Exception notifyEx)
+        {
+            _logger.LogError(notifyEx, 
+                "Failed to notify admin about exception");
+        }
+    }
+}
+```
+
+## Handler-Level Error Handling
+
+From `/home/daytona/workspace/source/Telegrator/Handlers/Components/UpdateHandlerBase.cs:98`, exceptions in handlers are automatically caught and passed to the exception handler:
+
+```csharp
+public async Task<Result> Execute(
+    DescribedHandlerInfo described, 
+    CancellationToken cancellationToken = default)
+{
+    try
+    {
+        // ... handler execution
+        return await ExecuteInternal(container, cancellationToken);
+    }
+    catch (OperationCanceledException)
+    {
+        return Result.Ok();
+    }
+    catch (Exception exception)
+    {
+        try
+        {
+            await described.UpdateRouter
+                .HandleErrorAsync(
+                    described.Client, 
+                    exception, 
+                    HandleErrorSource.HandleUpdateError, 
+                    cancellationToken)
+                .ConfigureAwait(false);
+        }
+        catch (NotImplementedException) { }
+
+        return Result.Fault();
+    }
+}
+```
+
+### Custom Error Handling in Handlers
+
+```csharp
+[MessageHandler]
+public class SafeHandler : MessageHandler
+{
+    private readonly ILogger<SafeHandler> _logger;
+
+    public SafeHandler(ILogger<SafeHandler> logger)
+    {
+        _logger = logger;
+    }
+
+    protected override async Task<Result> ExecuteInternal(
+        IHandlerContainer container,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            // Your handler logic here
+            await ProcessMessageAsync(container, cancellationToken);
+            return Result.Ok();
+        }
+        catch (BusinessLogicException ex)
+        {
+            // Handle expected business logic errors
+            _logger.LogWarning(ex, "Business logic error");
+            
+            await container.Client.SendTextMessageAsync(
+                container.GetChatId(),
+                "Sorry, something went wrong. Please try again.",
+                cancellationToken: cancellationToken);
+                
+            return Result.Ok(); // Don't propagate to global handler
+        }
+        catch (ValidationException ex)
+        {
+            // Handle validation errors
+            _logger.LogInformation(ex, "Validation failed");
+            
+            await container.Client.SendTextMessageAsync(
+                container.GetChatId(),
+                $"Invalid input: {ex.Message}",
+                cancellationToken: cancellationToken);
+                
+            return Result.Ok();
+        }
+        // Let other exceptions propagate to global handler
+    }
+
+    private async Task ProcessMessageAsync(
+        IHandlerContainer container,
+        CancellationToken cancellationToken)
+    {
+        // Implementation
+    }
+}
+```
+
+## Retry Patterns
+
+### Exponential Backoff
+
+```csharp
+public class RetryExceptionHandler : IRouterExceptionHandler
+{
+    private readonly ILogger<RetryExceptionHandler> _logger;
+    private readonly int _maxRetries = 3;
+
+    public RetryExceptionHandler(ILogger<RetryExceptionHandler> logger)
+    {
+        _logger = logger;
+    }
+
+    public void HandleException(
+        ITelegramBotClient botClient,
+        Exception exception,
+        HandleErrorSource source,
+        CancellationToken cancellationToken)
+    {
+        if (exception is ApiRequestException apiEx && apiEx.ErrorCode == 429)
+        {
+            var retryAfter = apiEx.Parameters?.RetryAfter ?? 1;
+            _logger.LogWarning(
+                "Rate limited. Waiting {RetryAfter} seconds",
+                retryAfter);
+                
+            Task.Delay(TimeSpan.FromSeconds(retryAfter), cancellationToken)
+                .Wait(cancellationToken);
+        }
+        else if (ShouldRetry(exception))
+        {
+            RetryWithBackoff(exception, source);
+        }
+        else
+        {
+            _logger.LogError(exception, 
+                "Unrecoverable error from {Source}", source);
+        }
+    }
+
+    private bool ShouldRetry(Exception exception)
+    {
+        return exception is HttpRequestException or TaskCanceledException;
+    }
+
+    private void RetryWithBackoff(Exception exception, HandleErrorSource source)
+    {
+        for (int i = 0; i < _maxRetries; i++)
+        {
+            var delay = TimeSpan.FromSeconds(Math.Pow(2, i));
+            _logger.LogInformation(
+                "Retry attempt {Attempt} after {Delay}s",
+                i + 1,
+                delay.TotalSeconds);
+                
+            Task.Delay(delay).Wait();
+            // Retry logic here
+        }
+    }
+}
+```
+
+## Circuit Breaker Pattern
+
+```csharp
+public class CircuitBreakerExceptionHandler : IRouterExceptionHandler
+{
+    private readonly ILogger<CircuitBreakerExceptionHandler> _logger;
+    private int _failureCount;
+    private DateTime _lastFailureTime;
+    private bool _isOpen;
+    private readonly int _failureThreshold = 5;
+    private readonly TimeSpan _timeout = TimeSpan.FromMinutes(1);
+
+    public CircuitBreakerExceptionHandler(
+        ILogger<CircuitBreakerExceptionHandler> logger)
+    {
+        _logger = logger;
+    }
+
+    public void HandleException(
+        ITelegramBotClient botClient,
+        Exception exception,
+        HandleErrorSource source,
+        CancellationToken cancellationToken)
+    {
+        if (_isOpen && DateTime.UtcNow - _lastFailureTime > _timeout)
+        {
+            _logger.LogInformation("Circuit breaker resetting");
+            _isOpen = false;
+            _failureCount = 0;
+        }
+
+        if (_isOpen)
+        {
+            _logger.LogWarning("Circuit breaker is open. Dropping request.");
+            return;
+        }
+
+        _logger.LogError(exception, 
+            "Error from {Source}", source);
+
+        _failureCount++;
+        _lastFailureTime = DateTime.UtcNow;
+
+        if (_failureCount >= _failureThreshold)
+        {
+            _logger.LogWarning(
+                "Circuit breaker opening after {Count} failures",
+                _failureCount);
+            _isOpen = true;
+        }
+    }
+}
+```
+
+## Logging and Monitoring
+
+### Structured Logging
+
+```csharp
+public class StructuredLoggingExceptionHandler : IRouterExceptionHandler
+{
+    private readonly ILogger<StructuredLoggingExceptionHandler> _logger;
+
+    public StructuredLoggingExceptionHandler(
+        ILogger<StructuredLoggingExceptionHandler> logger)
+    {
+        _logger = logger;
+    }
+
+    public void HandleException(
+        ITelegramBotClient botClient,
+        Exception exception,
+        HandleErrorSource source,
+        CancellationToken cancellationToken)
+    {
+        var properties = new Dictionary<string, object>
+        {
+            ["ErrorSource"] = source.ToString(),
+            ["ExceptionType"] = exception.GetType().Name,
+            ["Timestamp"] = DateTime.UtcNow,
+        };
+
+        if (exception is ApiRequestException apiEx)
+        {
+            properties["ApiErrorCode"] = apiEx.ErrorCode;
+            properties["RetryAfter"] = apiEx.Parameters?.RetryAfter ?? 0;
+        }
+
+        using (_logger.BeginScope(properties))
+        {
+            _logger.LogError(exception,
+                "Bot error: {Message}",
+                exception.Message);
+        }
+    }
+}
+```
+
+## Best Practices
+
+<Tip>
+  **Log appropriately**: Use different log levels (Information, Warning, Error, Critical) based on exception severity.
+</Tip>
+
+<Tip>
+  **Graceful degradation**: Handle errors gracefully and provide user feedback when appropriate.
+</Tip>
+
+<Warning>
+  **Avoid swallowing exceptions**: Always log exceptions even if you handle them. Silent failures are hard to debug.
+</Warning>
+
+<Note>
+  **Rate limiting**: Telegram API has rate limits. Handle `ApiRequestException` with error code 429 specially.
+</Note>
+
+<Warning>
+  **Don't block**: Exception handlers should not perform long-running operations. Use fire-and-forget or queuing for notifications.
+</Warning>
+
+<Tip>
+  **Monitor exception trends**: Track exception frequency and types to identify recurring issues.
+</Tip>
+
+## Testing Error Handlers
+
+```csharp
+[Fact]
+public void ExceptionHandler_LogsError_WhenExceptionOccurs()
+{
+    // Arrange
+    var logger = new Mock<ILogger<BasicExceptionHandler>>();
+    var handler = new BasicExceptionHandler(logger.Object);
+    var botClient = new Mock<ITelegramBotClient>().Object;
+    var exception = new Exception("Test error");
+
+    // Act
+    handler.HandleException(
+        botClient,
+        exception,
+        HandleErrorSource.HandleUpdateError,
+        CancellationToken.None);
+
+    // Assert
+    logger.Verify(
+        x => x.Log(
+            LogLevel.Error,
+            It.IsAny<EventId>(),
+            It.IsAny<It.IsAnyType>(),
+            exception,
+            It.IsAny<Func<It.IsAnyType, Exception?, string>>()),
+        Times.Once);
+}
+```

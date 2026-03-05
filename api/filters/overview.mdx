@@ -1,0 +1,197 @@
+---
+title: Filters Overview
+description: Understanding the Telegrator filter system for message routing and validation
+---
+
+## Introduction
+
+Filters are the backbone of Telegrator's message routing system. They allow you to define precise conditions that determine when your handlers should execute. By applying filters as attributes to your handler methods, you create a declarative and maintainable routing system for your bot.
+
+## How Filters Work
+
+Filters in Telegrator operate on a simple principle: they evaluate incoming updates and return a boolean value indicating whether the update should be processed by the associated handler.
+
+### Filter Execution Flow
+
+1. **Update Received**: A Telegram update arrives at your bot
+2. **Filter Evaluation**: Each filter attribute on a handler is evaluated in order
+3. **Logical AND**: All filters must pass for the handler to execute
+4. **Handler Execution**: If all filters pass, the handler method is invoked
+
+```csharp
+[CommandHandler("start")]
+[ChatType(ChatType.Private)]  // Filter 1: Must be private chat
+[NotFromBot]                  // Filter 2: Must not be from a bot
+public async Task HandleStart()
+{
+    // This handler only executes if BOTH filters pass
+    await Bot.SendTextMessageAsync("Welcome!");
+}
+```
+
+## Filter Categories
+
+Telegrator organizes filters into several categories:
+
+### Command Filters
+Filter command arguments and validate command structure.
+- Argument count validation
+- Argument content matching
+- Pattern matching on arguments
+
+### Text Filters
+Match and validate message text content.
+- Text pattern matching
+- Content validation
+- Word detection
+
+### Chat Filters
+Filter based on chat properties.
+- Chat type (private, group, channel)
+- Chat identification
+- Forum chat detection
+
+### Sender Filters
+Filter based on message sender properties.
+- User identification
+- Bot detection
+- Premium user detection
+
+### Message Filters
+Filter based on message properties and content.
+- Message entities
+- Dice throws
+- Service messages
+- Reply chain validation
+
+### Callback Filters
+Filter callback query updates.
+- Callback data matching
+- Inline message identification
+
+### Environment Filters
+Filter based on runtime environment.
+- Debug/Release mode
+- Environment variables
+
+## Combining Filters
+
+Filters can be combined using logical operations:
+
+### Multiple Attributes (AND Logic)
+
+```csharp
+[CommandHandler("admin")]
+[ChatType(ChatType.Group)]        // AND
+[FromUserId(123456789)]           // AND
+[ChatIsForum]                     // All must pass
+public async Task HandleAdminCommand()
+{
+    // Only executes in forum groups, from specific user
+}
+```
+
+### Programmatic Filter Composition
+
+For more complex scenarios, you can compose filters programmatically:
+
+```csharp
+var filter = new TextStartsWithFilter("hello")
+    .Or(new TextStartsWithFilter("hi"))
+    .And(new FromBotFilter().Not());
+```
+
+## Filter Base Classes
+
+Telegrator provides several base classes for different filter types:
+
+- **`MessageFilterAttribute`**: Base for all message-related filters
+- **`CallbackQueryAttribute`**: Base for callback query filters
+- **`EnvironmentFilterAttribute`**: Base for environment-based filters
+
+## Best Practices
+
+### Order Your Filters Strategically
+
+Place the most restrictive or fastest-to-evaluate filters first:
+
+```csharp
+[CommandHandler("premium")]
+[FromPremiumUser]                 // Fast check first
+[TextStartsWith("/premium pro")]  // Then more complex checks
+public async Task HandlePremiumCommand() { }
+```
+
+### Use Specific Filters
+
+Choose the most specific filter for your needs:
+
+```csharp
+// Good: Specific filter
+[ArgumentEquals("delete", index: 0)]
+
+// Less efficient: Generic regex for simple equality
+[ArgumentRegex("^delete$", index: 0)]
+```
+
+### Keep Handlers Focused
+
+Use filters to create focused, single-purpose handlers rather than complex branching logic:
+
+```csharp
+// Good: Separate focused handlers
+[CommandHandler("settings")]
+[ArgumentEquals("show")]
+public async Task ShowSettings() { }
+
+[CommandHandler("settings")]
+[ArgumentEquals("reset")]
+public async Task ResetSettings() { }
+
+// Less maintainable: One handler with branching
+[CommandHandler("settings")]
+public async Task HandleSettings()
+{
+    if (args[0] == "show") { /* ... */ }
+    else if (args[0] == "reset") { /* ... */ }
+}
+```
+
+## Creating Custom Filters
+
+You can create custom filters by extending the `Filter<T>` base class:
+
+```csharp
+public class CustomFilter : Filter<Message>
+{
+    public override bool CanPass(FilterExecutionContext<Message> context)
+    {
+        // Your custom logic here
+        return context.Input.Text?.Contains("custom") ?? false;
+    }
+}
+
+// Use as attribute
+public class CustomFilterAttribute() 
+    : MessageFilterAttribute(new CustomFilter())
+{ }
+```
+
+## Performance Considerations
+
+- Filters are evaluated synchronously in order
+- Failed filters short-circuit evaluation (remaining filters are not checked)
+- Regular expression filters are more expensive than simple string operations
+- Cache compiled regexes when possible
+
+## Next Steps
+
+Explore specific filter categories:
+
+- [Command Filters](/api/filters/command-filters) - Validate command arguments
+- [Text Filters](/api/filters/text-filters) - Match message text patterns
+- [Chat Filters](/api/filters/chat-filters) - Filter by chat properties
+- [Sender Filters](/api/filters/sender-filters) - Filter by sender attributes
+- [Message Filters](/api/filters/message-filters) - Filter by message properties
+- [Callback Filters](/api/filters/callback-filters) - Handle callback queries
+- [Environment Filters](/api/filters/environment-filters) - Filter by runtime environment

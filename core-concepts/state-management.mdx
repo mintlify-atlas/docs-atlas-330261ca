@@ -1,0 +1,753 @@
+---
+title: 'State Management'
+description: 'Managing conversation state across multiple updates in Telegrator'
+icon: 'database'
+---
+
+## Overview
+
+State management in Telegrator allows you to track where users are in multi-step conversations. Instead of processing every message the same way, you can maintain state and respond differently based on the conversation context.
+
+## Why State Management?
+
+Consider a registration flow:
+
+1. Bot asks for name
+2. User sends name
+3. Bot asks for age
+4. User sends age
+5. Bot asks for email
+6. User sends email
+
+Without state management, the bot can't tell if "John" is a name (step 2) or an email address (step 6). State management solves this by tracking which step the user is on.
+
+## State Keeper Types
+
+Telegrator provides three types of state keepers:
+
+<CardGroup cols={3}>
+  <Card title="NumericState" icon="hashtag">
+    Integer-based states for sequential flows
+  </Card>
+  <Card title="StringState" icon="font">
+    String-based states for named steps
+  </Card>
+  <Card title="EnumState" icon="list">
+    Enum-based states for type-safe flows
+  </Card>
+</CardGroup>
+
+## NumericState
+
+`NumericStateKeeper` manages integer states, perfect for sequential step-by-step flows.
+
+### Basic Usage
+
+```csharp
+using Telegram.Bot.Types;
+using Telegrator.Handlers;
+using Telegrator.Annotations;
+using Telegrator.Annotations.StateKeeping;
+
+// Start the registration flow
+[CommandHandler]
+[CommandAllias("register")]
+public class StartRegistrationHandler : CommandHandler
+{
+    public override async Task<Result> Execute(
+        IHandlerContainer<Message> container, 
+        CancellationToken cancellation)
+    {
+        // Create state for this user
+        Container.CreateNumericState();
+        
+        // State is now 1 (default)
+        await Reply("Let's register you! What's your name?");
+        return Result.Ok();
+    }
+}
+
+// Handle step 1: Name input
+[MessageHandler]
+[NumericState(1)]
+[HasText]
+public class NameStepHandler : MessageHandler
+{
+    public override async Task<Result> Execute(
+        IHandlerContainer<Message> container, 
+        CancellationToken cancellation)
+    {
+        string name = Input.Text;
+        // Save name to database...
+        
+        // Move to next state
+        Container.ForwardNumericState(); // Now in state 2
+        
+        await Reply($"Nice to meet you, {name}! How old are you?");
+        return Result.Ok();
+    }
+}
+
+// Handle step 2: Age input
+[MessageHandler]
+[NumericState(2)]
+[HasText]
+public class AgeStepHandler : MessageHandler
+{
+    public override async Task<Result> Execute(
+        IHandlerContainer<Message> container, 
+        CancellationToken cancellation)
+    {
+        if (!int.TryParse(Input.Text, out int age))
+        {
+            await Reply("⚠️ Please enter a valid number.");
+            return Result.Ok(); // Stay in state 2
+        }
+        
+        // Save age to database...
+        
+        // Move to next state
+        Container.ForwardNumericState(); // Now in state 3
+        
+        await Reply("Great! What's your email address?");
+        return Result.Ok();
+    }
+}
+
+// Handle step 3: Email input
+[MessageHandler]
+[NumericState(3)]
+[HasText]
+public class EmailStepHandler : MessageHandler
+{
+    public override async Task<Result> Execute(
+        IHandlerContainer<Message> container, 
+        CancellationToken cancellation)
+    {
+        string email = Input.Text;
+        // Save email to database...
+        
+        // Registration complete, delete state
+        Container.DeleteNumericState();
+        
+        await Reply("✅ Registration complete! Welcome aboard!");
+        return Result.Ok();
+    }
+}
+```
+
+### NumericState Methods
+
+```csharp
+// Create state (starts at 1 by default)
+Container.CreateNumericState();
+
+// Set specific state
+Container.SetNumericState(5);
+
+// Move forward (increment)
+Container.ForwardNumericState();
+
+// Move backward (decrement)
+Container.BackwardNumericState();
+
+// Delete state
+Container.DeleteNumericState();
+
+// Access the state keeper directly
+NumericStateKeeper keeper = Container.NumericStateKeeper();
+```
+
+<Tip>
+  The default state is `1`, not `0`. This makes it more intuitive for step-based flows ("Step 1", "Step 2", etc.).
+</Tip>
+
+### State Properties
+
+```csharp
+public class NumericStateKeeper : StateKeeperBase<long, int>
+{
+    /// <summary>
+    /// Gets the default state value, which is 1.
+    /// </summary>
+    public override int DefaultState => 1;
+    
+    /// <summary>
+    /// Moves the numeric state forward by incrementing.
+    /// </summary>
+    protected override int MoveForward(int currentState, long _)
+    {
+        return currentState + 1;
+    }
+    
+    /// <summary>
+    /// Moves the numeric state backward by decrementing.
+    /// </summary>
+    protected override int MoveBackward(int currentState, long _)
+    {
+        return currentState - 1;
+    }
+}
+```
+
+## StringState
+
+`StringStateKeeper` manages string-based states, useful for named steps.
+
+### Basic Usage
+
+```csharp
+// Start the flow
+[CommandHandler]
+[CommandAllias("support")]
+public class SupportStartHandler : CommandHandler
+{
+    public override async Task<Result> Execute(
+        IHandlerContainer<Message> container, 
+        CancellationToken cancellation)
+    {
+        Container.CreateStringState();
+        Container.SetStringState("awaiting_category");
+        
+        await Reply(
+            "How can we help?\n" +
+            "1. Technical Issue\n" +
+            "2. Billing Question\n" +
+            "3. General Inquiry");
+        
+        return Result.Ok();
+    }
+}
+
+// Handle category selection
+[MessageHandler]
+[StringState("awaiting_category")]
+[HasText]
+public class CategoryHandler : MessageHandler
+{
+    public override async Task<Result> Execute(
+        IHandlerContainer<Message> container, 
+        CancellationToken cancellation)
+    {
+        string choice = Input.Text;
+        
+        switch (choice)
+        {
+            case "1":
+                Container.SetStringState("awaiting_technical_details");
+                await Reply("Please describe the technical issue.");
+                break;
+            case "2":
+                Container.SetStringState("awaiting_billing_details");
+                await Reply("Please describe your billing question.");
+                break;
+            case "3":
+                Container.SetStringState("awaiting_general_details");
+                await Reply("Please share your inquiry.");
+                break;
+            default:
+                await Reply("⚠️ Please choose 1, 2, or 3.");
+                break;
+        }
+        
+        return Result.Ok();
+    }
+}
+
+// Handle technical issue details
+[MessageHandler]
+[StringState("awaiting_technical_details")]
+[HasText]
+public class TechnicalDetailsHandler : MessageHandler
+{
+    public override async Task<Result> Execute(
+        IHandlerContainer<Message> container, 
+        CancellationToken cancellation)
+    {
+        string details = Input.Text;
+        // Save to support ticket system...
+        
+        Container.DeleteStringState();
+        await Reply("✅ Technical support ticket created. We'll be in touch soon!");
+        return Result.Ok();
+    }
+}
+```
+
+### StringState Methods
+
+```csharp
+// Create state (starts with empty string by default)
+Container.CreateStringState();
+
+// Set specific state
+Container.SetStringState("awaiting_name");
+
+// Delete state
+Container.DeleteStringState();
+
+// Access the state keeper directly
+StringStateKeeper keeper = Container.StringStateKeeper();
+```
+
+<Note>
+  String states don't have `Forward` and `Backward` methods like numeric states, since there's no inherent ordering to strings.
+</Note>
+
+## EnumState
+
+`EnumStateKeeper<TEnum>` provides type-safe state management using enums.
+
+### Basic Usage
+
+```csharp
+using Telegram.Bot.Types;
+using Telegrator.Handlers;
+using Telegrator.Annotations;
+using Telegrator.Annotations.StateKeeping;
+
+// Define your states as an enum
+public enum OrderStep
+{
+    SelectProduct,
+    EnterQuantity,
+    EnterAddress,
+    ConfirmOrder,
+    Complete
+}
+
+// Start the order flow
+[CommandHandler]
+[CommandAllias("order")]
+public class StartOrderHandler : CommandHandler
+{
+    public override async Task<Result> Execute(
+        IHandlerContainer<Message> container, 
+        CancellationToken cancellation)
+    {
+        Container.CreateEnumState<OrderStep>();
+        // State is now OrderStep.SelectProduct (first enum value)
+        
+        await Reply(
+            "Welcome to our store!\n" +
+            "Please choose a product:\n" +
+            "1. Widget\n" +
+            "2. Gadget\n" +
+            "3. Gizmo");
+        
+        return Result.Ok();
+    }
+}
+
+// Handle product selection
+[MessageHandler]
+[EnumState<OrderStep>(OrderStep.SelectProduct)]
+[HasText]
+public class SelectProductHandler : MessageHandler
+{
+    public override async Task<Result> Execute(
+        IHandlerContainer<Message> container, 
+        CancellationToken cancellation)
+    {
+        string choice = Input.Text;
+        // Save product selection...
+        
+        // Move to next state in enum
+        Container.ForwardEnumState<OrderStep>(); // Now OrderStep.EnterQuantity
+        
+        await Reply("How many would you like? (Enter a number)");
+        return Result.Ok();
+    }
+}
+
+// Handle quantity input
+[MessageHandler]
+[EnumState<OrderStep>(OrderStep.EnterQuantity)]
+[HasText]
+public class QuantityHandler : MessageHandler
+{
+    public override async Task<Result> Execute(
+        IHandlerContainer<Message> container, 
+        CancellationToken cancellation)
+    {
+        if (!int.TryParse(Input.Text, out int quantity) || quantity <= 0)
+        {
+            await Reply("⚠️ Please enter a valid positive number.");
+            return Result.Ok();
+        }
+        
+        // Save quantity...
+        Container.ForwardEnumState<OrderStep>(); // Now OrderStep.EnterAddress
+        
+        await Reply("Great! What's your delivery address?");
+        return Result.Ok();
+    }
+}
+
+// Handle address input
+[MessageHandler]
+[EnumState<OrderStep>(OrderStep.EnterAddress)]
+[HasText]
+public class AddressHandler : MessageHandler
+{
+    public override async Task<Result> Execute(
+        IHandlerContainer<Message> container, 
+        CancellationToken cancellation)
+    {
+        string address = Input.Text;
+        // Save address...
+        
+        Container.ForwardEnumState<OrderStep>(); // Now OrderStep.ConfirmOrder
+        
+        await Reply(
+            $"Order Summary:\n" +
+            $"Address: {address}\n\n" +
+            "Type 'confirm' to place order or 'cancel' to cancel.");
+        
+        return Result.Ok();
+    }
+}
+
+// Handle confirmation
+[MessageHandler]
+[EnumState<OrderStep>(OrderStep.ConfirmOrder)]
+[HasText]
+public class ConfirmOrderHandler : MessageHandler
+{
+    public override async Task<Result> Execute(
+        IHandlerContainer<Message> container, 
+        CancellationToken cancellation)
+    {
+        string response = Input.Text.ToLower();
+        
+        if (response == "confirm")
+        {
+            // Place order...
+            Container.DeleteEnumState<OrderStep>();
+            await Reply("✅ Order placed successfully! Thank you!");
+        }
+        else if (response == "cancel")
+        {
+            Container.DeleteEnumState<OrderStep>();
+            await Reply("❌ Order cancelled.");
+        }
+        else
+        {
+            await Reply("⚠️ Please type 'confirm' or 'cancel'.");
+        }
+        
+        return Result.Ok();
+    }
+}
+```
+
+### EnumState Methods
+
+```csharp
+// Create state (starts at first enum value)
+Container.CreateEnumState<OrderStep>();
+
+// Set specific state
+Container.SetEnumState(OrderStep.EnterAddress);
+
+// Move to next enum value
+Container.ForwardEnumState<OrderStep>();
+
+// Move to previous enum value
+Container.BackwardEnumState<OrderStep>();
+
+// Delete state
+Container.DeleteEnumState<OrderStep>();
+
+// Access the state keeper directly
+EnumStateKeeper<OrderStep> keeper = Container.EnumStateKeeper<OrderStep>();
+```
+
+<Tip>
+  Enum states provide compile-time safety. You can't accidentally set an invalid state, and refactoring tools will update state references automatically.
+</Tip>
+
+### EnumState Properties
+
+```csharp
+public class EnumStateKeeper<TEnum> : ArrayStateKeeper<long, TEnum> 
+    where TEnum : Enum
+{
+    /// <summary>
+    /// Gets the default state, which is the first value in the enum.
+    /// </summary>
+    public override TEnum DefaultState => ArrayStates.ElementAt(0);
+}
+```
+
+## State Key Resolvers
+
+By default, state is tracked per user (sender ID). You can customize this with key resolvers.
+
+### Default Resolver: SenderIdResolver
+
+Tracks state per user:
+
+```csharp
+[MessageHandler]
+[NumericState(1)] // Uses SenderIdResolver by default
+public class MyHandler : MessageHandler { }
+```
+
+### ChatIdResolver
+
+Tracks state per chat (useful for group conversations):
+
+```csharp
+using Telegrator.StateKeeping;
+
+[MessageHandler]
+[NumericState(1, new ChatIdResolver())]
+public class GroupStateHandler : MessageHandler { }
+```
+
+### Custom Key Resolver
+
+Create your own key resolver:
+
+```csharp
+using Telegram.Bot.Types;
+using Telegrator.StateKeeping.Components;
+
+public class CustomKeyResolver : IStateKeyResolver<long>
+{
+    public long GetKey(Update update)
+    {
+        // Use chat ID for groups, user ID for private chats
+        if (update.Message?.Chat.Type == ChatType.Private)
+            return update.Message.From?.Id ?? 0;
+        else
+            return update.Message?.Chat.Id ?? 0;
+    }
+}
+
+// Use it
+[MessageHandler]
+[NumericState(1, new CustomKeyResolver())]
+public class SmartStateHandler : MessageHandler { }
+```
+
+## Special States
+
+You can use special state values:
+
+```csharp
+using Telegrator.Annotations.StateKeeping;
+
+// Match any state (state exists but value doesn't matter)
+[MessageHandler]
+[NumericState(SpecialState.Any)]
+public class AnyStateHandler : MessageHandler { }
+
+// Match when no state exists
+[MessageHandler]
+[NumericState(SpecialState.NotSet)]
+public class NoStateHandler : MessageHandler { }
+```
+
+## State Scope
+
+Understand the scope of your state:
+
+<AccordionGroup>
+  <Accordion title="User-Scoped State" icon="user">
+    Each user has their own independent state:
+
+    ```csharp
+    [NumericState(1)] // Default: per-user state
+    ```
+
+    **Use When:**
+    - Building personal workflows
+    - Tracking individual user registration
+    - Managing user settings
+  </Accordion>
+
+  <Accordion title="Chat-Scoped State" icon="comments">
+    State is shared across all users in a chat:
+
+    ```csharp
+    [NumericState(1, new ChatIdResolver())]
+    ```
+
+    **Use When:**
+    - Building group games
+    - Managing group settings
+    - Coordinating group activities
+  </Accordion>
+
+  <Accordion title="Custom-Scoped State" icon="code">
+    Define your own scoping logic:
+
+    ```csharp
+    [NumericState(1, new MyCustomResolver())]
+    ```
+
+    **Use When:**
+    - Complex multi-user workflows
+    - Cross-chat state tracking
+    - Advanced state management needs
+  </Accordion>
+</AccordionGroup>
+
+## Best Practices
+
+<AccordionGroup>
+  <Accordion title="Always Clean Up State" icon="broom">
+    Delete state when the flow completes:
+
+    ```csharp
+    // Good: Clean up after completion
+    Container.DeleteNumericState();
+    await Reply("✅ Registration complete!");
+    
+    // Bad: State persists forever
+    await Reply("✅ Registration complete!");
+    // State still exists, causing issues later
+    ```
+  </Accordion>
+
+  <Accordion title="Provide Exit Commands" icon="door-open">
+    Let users escape a flow:
+
+    ```csharp
+    [MessageHandler]
+    [NumericState(SpecialState.Any)]
+    [TextEquals("/cancel")]
+    public class CancelFlowHandler : MessageHandler
+    {
+        public override async Task<Result> Execute(
+            IHandlerContainer<Message> container, 
+            CancellationToken cancellation)
+        {
+            Container.DeleteNumericState();
+            await Reply("❌ Process cancelled.");
+            return Result.Ok();
+        }
+    }
+    ```
+  </Accordion>
+
+  <Accordion title="Use Enums for Complex Flows" icon="diagram-project">
+    Enums provide better maintainability:
+
+    ```csharp
+    // Good: Self-documenting
+    public enum CheckoutStep
+    {
+        SelectProduct,
+        EnterShipping,
+        ConfirmPayment
+    }
+    
+    // Bad: Magic numbers
+    [NumericState(1)] // What does 1 mean?
+    [NumericState(2)] // What does 2 mean?
+    ```
+  </Accordion>
+
+  <Accordion title="Validate State Transitions" icon="shield-check">
+    Add validation for invalid inputs:
+
+    ```csharp
+    [MessageHandler]
+    [NumericState(2)]
+    public class AgeInputHandler : MessageHandler
+    {
+        public override async Task<Result> Execute(
+            IHandlerContainer<Message> container, 
+            CancellationToken cancellation)
+        {
+            if (!int.TryParse(Input.Text, out int age))
+            {
+                await Reply("⚠️ Please enter a valid number.");
+                return Result.Ok(); // Stay in same state
+            }
+            
+            if (age < 0 || age > 150)
+            {
+                await Reply("⚠️ Please enter a realistic age.");
+                return Result.Ok(); // Stay in same state
+            }
+            
+            // Valid input, proceed
+            Container.ForwardNumericState();
+            return Result.Ok();
+        }
+    }
+    ```
+  </Accordion>
+
+  <Accordion title="Handle State Expiration" icon="clock">
+    Consider implementing state timeout:
+
+    ```csharp
+    // Store state creation time
+    var stateCreated = DateTime.UtcNow;
+    
+    // Check expiration
+    if ((DateTime.UtcNow - stateCreated).TotalMinutes > 30)
+    {
+        Container.DeleteNumericState();
+        await Reply("⏰ Session expired. Please start again with /register.");
+        return Result.Ok();
+    }
+    ```
+  </Accordion>
+</AccordionGroup>
+
+## Common Patterns
+
+### Linear Flow
+
+Simple step-by-step progression:
+
+```csharp
+[NumericState(1)] → [NumericState(2)] → [NumericState(3)] → Complete
+```
+
+### Branching Flow
+
+Different paths based on user choice:
+
+```csharp
+[StringState("main")]
+   ↓
+   User Choice
+   │
+   ├── [StringState("path_a")] → [StringState("path_a_step2")]
+   │
+   └── [StringState("path_b")] → [StringState("path_b_step2")]
+```
+
+### Loop Flow
+
+Repeat a step until condition met:
+
+```csharp
+[NumericState(1)] → [NumericState(2)]
+                      │
+                      └─── (invalid) → Stay in State 2
+```
+
+## Related Topics
+
+<CardGroup cols={2}>
+  <Card title="Filters" icon="filter" href="/core-concepts/filters">
+    Learn about state-based filtering
+  </Card>
+  <Card title="Handlers" icon="code" href="/core-concepts/handlers">
+    Understand handler implementation
+  </Card>
+  <Card title="Results" icon="flag-checkered" href="/core-concepts/results">
+    Control handler execution flow
+  </Card>
+  <Card title="Architecture" icon="sitemap" href="/core-concepts/architecture">
+    See how state fits in the framework
+  </Card>
+</CardGroup>

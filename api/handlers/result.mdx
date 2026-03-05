@@ -1,0 +1,379 @@
+---
+title: Result
+description: Handler result types for controlling execution flow and router behavior
+---
+
+## Overview
+
+The `Result` class represents handler execution results and allows you to communicate with the router and control aspect execution. It determines whether a handler succeeded, failed, or whether the router should continue searching for other handlers.
+
+## Properties
+
+<ParamField path="Positive" type="bool">
+  Indicates if the result is positive (success).
+</ParamField>
+
+<ParamField path="RouteNext" type="bool">
+  Indicates whether the router should search for the next matching handler.
+</ParamField>
+
+<ParamField path="NextType" type="Type">
+  The exact type that the router should search for when chaining handlers.
+</ParamField>
+
+## Static Methods
+
+### Result.Ok()
+
+```csharp
+public static Result Ok()
+```
+
+Represents a successful execution.
+
+**Behavior in different contexts:**
+
+- **Inside `IPreProcessor`**: Allows the handler's main execution block to run.
+- **Inside handler's `Execute()` method**: Tells the router that the update was handled successfully and it can stop searching for other handlers.
+- **Inside `FiltersFallback()`**: Allows the router to continue searching for other handlers.
+
+**Returns:** A positive result that stops router execution.
+
+**Example:**
+```csharp
+public override async Task<Result> Execute(
+    IHandlerContainer<Message> container,
+    CancellationToken cancellation)
+{
+    await Reply("Command executed successfully!");
+    return Result.Ok(); // Success, stop looking for other handlers
+}
+```
+
+### Result.Fault()
+
+```csharp
+public static Result Fault()
+```
+
+Represents a fault or error state.
+
+**Behavior in different contexts:**
+
+- **Inside `IPreProcessor`**: Interrupts execution of the handler. The main block and `IPostProcessor` will not be executed.
+- **Inside `FiltersFallback()`**: Interrupts the router's handler search sequence.
+- **Inside handler's `Execute()` method**: Indicates an error occurred and stops router execution.
+
+**Returns:** A negative result that stops execution.
+
+**Example:**
+```csharp
+public override async Task<Result> Execute(
+    IHandlerContainer<Message> container,
+    CancellationToken cancellation)
+{
+    if (!await ValidateUser())
+    {
+        await Reply("Access denied!");
+        return Result.Fault(); // Error, stop processing
+    }
+
+    await ProcessCommand();
+    return Result.Ok();
+}
+```
+
+### Result.Next()
+
+```csharp
+public static Result Next()
+```
+
+Represents a continuation signal.
+
+**Behavior in different contexts:**
+
+- **Inside `FiltersFallback()`**: Allows the router to continue searching for other handlers.
+- **Inside handler's `Execute()` method**: Tells the router to continue searching for and executing other matching handlers.
+
+**Returns:** A positive result that continues router execution.
+
+**Example:**
+```csharp
+[AnyUpdateHandler]
+public class LoggingHandler : AnyUpdateHandler
+{
+    public override async Task<Result> Execute(
+        IHandlerContainer<Update> container,
+        CancellationToken cancellation)
+    {
+        // Log the update
+        _logger.LogInformation("Update received: {UpdateId}", Input.Id);
+
+        // Continue to next handler
+        return Result.Next();
+    }
+}
+```
+
+### Result.Next&lt;T&gt;()
+
+```csharp
+public static Result Next<T>()
+```
+
+Represents a chaining continuation with type filtering.
+
+**Behavior:**
+
+- **Inside handler's `Execute()` method**: Tells the router to continue searching for handlers, but only execute handlers of the exact type `T`.
+
+**Type Parameters:**
+
+<ParamField path="T" type="Type" required>
+  The handler type to search for next.
+</ParamField>
+
+**Returns:** A positive result that continues to specific handler types.
+
+**Example:**
+```csharp
+[MessageHandler]
+public class PreprocessHandler : MessageHandler
+{
+    public override async Task<Result> Execute(
+        IHandlerContainer<Message> container,
+        CancellationToken cancellation)
+    {
+        // Store some data for other handlers
+        ExtraData["preprocessed"] = true;
+        ExtraData["timestamp"] = DateTime.UtcNow;
+
+        // Continue only to CommandHandler instances
+        return Result.Next<CommandHandler>();
+    }
+}
+```
+
+## Decision Flow
+
+Here's how to choose which result to return:
+
+```
+Did the handler succeed?
+├─ Yes
+│  └─ Should other handlers run?
+│     ├─ No → Result.Ok()
+│     ├─ Yes, any handler → Result.Next()
+│     └─ Yes, specific type → Result.Next<T>()
+└─ No (error occurred)
+   └─ Result.Fault()
+```
+
+## Examples
+
+### Success and Stop
+
+```csharp
+[CommandHandler]
+[CommandFilter("start")]
+public class StartHandler : CommandHandler
+{
+    public override async Task<Result> Execute(
+        IHandlerContainer<Message> container,
+        CancellationToken cancellation)
+    {
+        await Reply("Welcome to the bot!");
+
+        // This handler completely handled the update
+        return Result.Ok();
+    }
+}
+```
+
+### Error Handling
+
+```csharp
+[CommandHandler]
+[CommandFilter("admin")]
+public class AdminHandler : CommandHandler
+{
+    public override async Task<Result> Execute(
+        IHandlerContainer<Message> container,
+        CancellationToken cancellation)
+    {
+        var user = Input.From;
+
+        if (!await _adminService.IsAdmin(user.Id))
+        {
+            await Reply("⛔ You don't have admin privileges.");
+            return Result.Fault(); // Stop processing due to auth failure
+        }
+
+        await ProcessAdminCommand();
+        return Result.Ok();
+    }
+}
+```
+
+### Logging and Continue
+
+```csharp
+[AnyUpdateHandler(importance: 100)]
+public class AuditHandler : AnyUpdateHandler
+{
+    public override async Task<Result> Execute(
+        IHandlerContainer<Update> container,
+        CancellationToken cancellation)
+    {
+        // Log to audit trail
+        await _auditLog.RecordUpdate(Input);
+
+        // Continue to other handlers
+        return Result.Next();
+    }
+}
+```
+
+### Handler Chain
+
+```csharp
+[MessageHandler(importance: 10)]
+public class ValidationHandler : MessageHandler
+{
+    public override async Task<Result> Execute(
+        IHandlerContainer<Message> container,
+        CancellationToken cancellation)
+    {
+        // Validate the message
+        if (Input.Text?.Length > 1000)
+        {
+            await Reply("Message too long!");
+            return Result.Fault(); // Stop processing
+        }
+
+        // Store validation result
+        ExtraData["validated"] = true;
+
+        // Continue to other MessageHandler instances
+        return Result.Next<MessageHandler>();
+    }
+}
+
+[MessageHandler(importance: 5)]
+public class ProcessingHandler : MessageHandler
+{
+    public override async Task<Result> Execute(
+        IHandlerContainer<Message> container,
+        CancellationToken cancellation)
+    {
+        // This only runs if validation passed
+        if (ExtraData.ContainsKey("validated"))
+        {
+            await ProcessMessage();
+        }
+
+        return Result.Ok();
+    }
+}
+```
+
+### Conditional Routing
+
+```csharp
+[MessageHandler]
+public class RouterHandler : MessageHandler
+{
+    public override async Task<Result> Execute(
+        IHandlerContainer<Message> container,
+        CancellationToken cancellation)
+    {
+        if (Input.Text?.StartsWith("/") == true)
+        {
+            // Let command handlers process this
+            return Result.Next<CommandHandler>();
+        }
+
+        if (Input.Photo != null)
+        {
+            // Let photo handlers process this
+            return Result.Next<PhotoHandler>();
+        }
+
+        // No specific handler needed, continue normally
+        return Result.Next();
+    }
+}
+```
+
+### Middleware Pattern
+
+```csharp
+[AnyUpdateHandler(importance: 50)]
+public class RateLimitMiddleware : AnyUpdateHandler
+{
+    public override async Task<Result> Execute(
+        IHandlerContainer<Update> container,
+        CancellationToken cancellation)
+    {
+        var userId = GetUserId(Input);
+
+        if (await _rateLimiter.IsRateLimited(userId))
+        {
+            // Rate limited - stop processing
+            return Result.Fault();
+        }
+
+        // Not rate limited - continue to next handler
+        return Result.Next();
+    }
+}
+```
+
+## Use Cases by Result Type
+
+### When to use Result.Ok()
+
+- Command was processed successfully
+- Response was sent to user
+- No other handlers should run
+- Final handler in a chain
+
+### When to use Result.Fault()
+
+- Authentication/authorization failed
+- Validation errors occurred
+- Rate limit exceeded
+- Critical error that should stop processing
+
+### When to use Result.Next()
+
+- Logging/analytics handlers
+- Preprocessing/middleware
+- Non-terminal operations
+- Want all matching handlers to run
+
+### When to use Result.Next&lt;T&gt;()
+
+- Building handler pipelines
+- Routing to specific handler types
+- Implementing workflows with specific handler sequences
+- Type-safe handler chaining
+
+## Best Practices
+
+1. **Use Ok() for terminal handlers**: When your handler fully processes the update and no other handlers should run.
+
+2. **Use Next() for middleware**: When implementing cross-cutting concerns like logging, analytics, or validation.
+
+3. **Use Fault() sparingly**: Reserve for actual errors, not for normal flow control.
+
+4. **Chain with Next&lt;T&gt;()**: Build type-safe handler pipelines for complex workflows.
+
+5. **Document behavior**: Comment why you're using each result type, especially `Next<T>()`.
+
+## See Also
+
+- [MessageHandler](/api/handlers/message-handler) - Basic message handler
+- [Handler Importance](/guides/handler-importance) - Understanding execution order
+- [Aspects](/api/aspects/overview) - Pre/post processors
