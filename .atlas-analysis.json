@@ -1,0 +1,160 @@
+{
+  "projectType": "framework",
+  "projectName": "Telegrator",
+  "projectDescription": "A modern reactive framework for Telegram bots in C# with aspect-oriented design, mediator-based dispatching, and flexible architecture.",
+  "theme": "aspen",
+  "primaryColor": "#0088cc",
+  "lightColor": null,
+  "darkColor": null,
+  "navigation": {
+    "tabs": [
+      {
+        "tab": "Documentation",
+        "groups": [
+          {
+            "group": "Get Started",
+            "pages": [
+              "introduction",
+              "installation",
+              "quickstart"
+            ]
+          },
+          {
+            "group": "Core Concepts",
+            "pages": [
+              "core-concepts/architecture",
+              "core-concepts/mediator-pattern",
+              "core-concepts/handlers",
+              "core-concepts/filters",
+              "core-concepts/state-management",
+              "core-concepts/results"
+            ]
+          },
+          {
+            "group": "Guides",
+            "pages": [
+              "guides/creating-handlers",
+              "guides/working-with-filters",
+              "guides/managing-state",
+              "guides/concurrency-control",
+              "guides/aspect-oriented-programming",
+              "guides/handler-builder"
+            ]
+          },
+          {
+            "group": "Hosting",
+            "pages": [
+              "hosting/overview",
+              "hosting/console-apps",
+              "hosting/aspnet-core"
+            ]
+          },
+          {
+            "group": "Advanced",
+            "pages": [
+              "advanced/custom-filters",
+              "advanced/custom-state-keepers",
+              "advanced/error-handling",
+              "advanced/performance",
+              "advanced/best-practices"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "API Reference",
+        "groups": [
+          {
+            "group": "Client",
+            "pages": [
+              "api/client/telegrator-client",
+              "api/client/telegrator-options",
+              "api/client/bot-info"
+            ]
+          },
+          {
+            "group": "Handlers",
+            "pages": [
+              "api/handlers/message-handler",
+              "api/handlers/command-handler",
+              "api/handlers/callback-query-handler",
+              "api/handlers/inline-query-handler",
+              "api/handlers/any-update-handler",
+              "api/handlers/result"
+            ]
+          },
+          {
+            "group": "Filters",
+            "pages": [
+              "api/filters/overview",
+              "api/filters/command-filters",
+              "api/filters/text-filters",
+              "api/filters/chat-filters",
+              "api/filters/sender-filters",
+              "api/filters/message-filters",
+              "api/filters/callback-filters",
+              "api/filters/environment-filters"
+            ]
+          },
+          {
+            "group": "State Management",
+            "pages": [
+              "api/state/numeric-state",
+              "api/state/string-state",
+              "api/state/enum-state",
+              "api/state/state-keepers"
+            ]
+          },
+          {
+            "group": "Aspects",
+            "pages": [
+              "api/aspects/preprocessor",
+              "api/aspects/postprocessor"
+            ]
+          },
+          {
+            "group": "Hosting",
+            "pages": [
+              "api/hosting/telegram-bot-host",
+              "api/hosting/host-builder",
+              "api/hosting/extensions"
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "keyFeatures": [
+    "Aspect-oriented handler architecture",
+    "Mediator-based update dispatching",
+    "Declarative filter attributes for routing",
+    "Built-in state management without external storage",
+    "Concurrency control and handler awaiting",
+    "Microsoft.Extensions.Hosting integration",
+    "Pre/post-processor aspect hooks",
+    "Extensible filter and state keeper system"
+  ],
+  "publicApiSurface": [
+    "TelegratorClient",
+    "TelegratorOptions",
+    "MessageHandler",
+    "CommandHandler",
+    "CallbackQueryHandler",
+    "InlineQueryHandler",
+    "AnyUpdateHandler",
+    "Result",
+    "CommandAlliasAttribute",
+    "TextContainsAttribute",
+    "TextStartsWithAttribute",
+    "TextEndsWithAttribute",
+    "ChatTypeAttribute",
+    "SenderTypeAttribute",
+    "NumericStateAttribute",
+    "StringStateAttribute",
+    "EnumStateAttribute",
+    "IPreProcessor",
+    "IPostProcessor",
+    "TelegramBotHost",
+    "TelegramBotHostBuilder"
+  ]
+}
