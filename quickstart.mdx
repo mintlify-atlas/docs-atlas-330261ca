@@ -506,17 +506,17 @@ public override async Task<Result> Execute(
 ### Returning Results
 
 ```csharp
-// Success - handler completed successfully
+// Success - handler completed successfully, stop routing
 return Result.Ok();
 
-// With a value
-return Result.Ok(someData);
+// Error - handler encountered an error, stop routing
+return Result.Fault();
 
-// Failure - handler encountered an error
-return Result.Fail("Something went wrong");
+// Continue - let the router continue to other handlers
+return Result.Next();
 
-// Stop further handler execution
-return Result.Break();
+// Chain - continue only to handlers of specific type
+return Result.Next<CommandHandler>();
 ```
 
 <Tip>
